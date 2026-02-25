@@ -12,4 +12,4 @@ export const Colors = {
     active: '#E8EAF6', // Light Indigo for active states
 };
 
-export const API_URL = 'http://15.206.2.237:3000/api/v1'; // Update for device if needed
+export const API_URL = 'http://localhost:3000/api/v1'; // Update for device if needed
