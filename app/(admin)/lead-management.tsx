@@ -515,6 +515,7 @@ export default function LeadManagementScreen() {
 
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
+    const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
 
     const [editTarget, setEditTarget] = useState<any>(null);
     const [editForm, setEditForm] = useState<any>({});
@@ -650,7 +651,8 @@ export default function LeadManagementScreen() {
         const updated = new Date(l.updatedAt);
         return nad <= today && updated < nad;
     });
-    const revisitLeads = activeLeads.filter(l => l.isRevisit === true);
+    const revisitLeads = activeLeads.filter(l => l.isRevisit === true)
+        .sort((a, b) => (a?.customer?.phone ?? '').localeCompare(b?.customer?.phone ?? ''));
     const convertedLeads = leads.filter(l => (l.status ?? '').startsWith('converted:'));
     const droppedLeads = leads.filter(l => l.status === 'dropped');
 
@@ -842,117 +844,173 @@ export default function LeadManagementScreen() {
                             </View>
 
                             {/* Data rows */}
-                            {colFilteredLeads.map((lead, idx) => (
-                                <View key={lead.id} style={[tbl.row, idx % 2 === 1 && tbl.rowAlt]}>
-                                    {/* Edit + History + Call buttons */}
-                                    <View style={[tbl.cell, { width: 120, alignItems: 'center', flexDirection: 'row', gap: 0 }]}>
-                                        <IconButton icon="pencil" size={18} onPress={() => openEdit(lead)}
-                                            style={{ margin: 0 }} iconColor={Colors.primary} />
-                                        <IconButton icon="history" size={18} onPress={() => openHistory(lead)}
-                                            style={{ margin: 0 }} iconColor="#6B7280" />
-                                        <IconButton icon="phone" size={18} onPress={() => setCallLead(lead)}
-                                            style={{ margin: 0 }} iconColor="#16A34A" />
-                                    </View>
+                            {colFilteredLeads.map((lead, idx, arr) => {
+                                const phone = lead?.customer?.phone ?? '';
+                                const prevPhone = idx > 0 ? (arr[idx - 1]?.customer?.phone ?? '') : null;
+                                const isNewGroup = filter === 'revisit' && prevPhone !== null && phone !== prevPhone;
+                                const groupCount = filter === 'revisit' ? arr.filter(l => (l?.customer?.phone ?? '') === phone).length : 0;
+                                const isFirstInGroup = filter === 'revisit' && (idx === 0 || phone !== prevPhone);
+                                const isExpanded = filter !== 'revisit' || expandedRevisitGroups.has(phone);
 
-                                    {/* Status */}
-                                    <View style={[tbl.cell, { width: 130 }]}>
-                                        {(() => {
-                                            const s = leadStatusStyle(lead.status);
-                                            return (
-                                                <View style={[tbl.badge, { backgroundColor: s.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }]}>
-                                                    <Text style={[tbl.badgeText, { color: s.color, fontWeight: '700' }]}>{s.label}</Text>
+                                const toggleGroup = () => {
+                                    setExpandedRevisitGroups(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(phone)) next.delete(phone);
+                                        else next.add(phone);
+                                        return next;
+                                    });
+                                };
+
+                                return (
+                                    <React.Fragment key={lead.id}>
+                                        {/* Group header for revisit view */}
+                                        {filter === 'revisit' && isFirstInGroup && (
+                                            <Pressable onPress={toggleGroup} style={{
+                                                flexDirection: 'row', alignItems: 'center',
+                                                backgroundColor: isExpanded ? '#EDE9FE' : '#F5F3FF',
+                                                borderTopWidth: isNewGroup ? 2 : 1,
+                                                borderTopColor: isNewGroup ? '#7C3AED' : '#E9E5F5',
+                                                paddingVertical: 8, paddingHorizontal: 14,
+                                                minWidth: TOTAL_WIDTH,
+                                                cursor: 'pointer' as any,
+                                            }}>
+                                                <Text style={{ fontSize: 14, color: '#7C3AED', marginRight: 6 }}>
+                                                    {isExpanded ? '▼' : '▶'}
+                                                </Text>
+                                                <Text style={{ fontSize: 12, fontWeight: '800', color: '#7C3AED' }}>
+                                                    📞 {phone || 'No phone'}
+                                                </Text>
+                                                <View style={{
+                                                    backgroundColor: '#7C3AED', borderRadius: 10, marginLeft: 8,
+                                                    paddingHorizontal: 7, paddingVertical: 2,
+                                                }}>
+                                                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>
+                                                        {groupCount} lead{groupCount !== 1 ? 's' : ''}
+                                                    </Text>
                                                 </View>
-                                            );
-                                        })()}
-                                    </View>
-
-                                    <View style={[tbl.cell, { width: 150 }]}>
-                                        <Text style={tbl.nameText} numberOfLines={2}>{c(lead).name || '—'}</Text>
-                                    </View>
-                                    <View style={[tbl.cell, { width: 135 }]}>
-                                        <Text style={tbl.cellText}>{c(lead).phone || '—'}</Text>
-                                    </View>
-                                    <View style={[tbl.cell, { width: 100 }]}>
-                                        <Text style={tbl.cellText}>{c(lead).city || '—'}</Text>
-                                    </View>
-
-                                    {/* Source */}
-                                    <View style={[tbl.cell, { width: 120 }]}>
-                                        {lead.source ? (
-                                            <View style={[tbl.badge, { backgroundColor: '#EEF2FF', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 }]}>
-                                                <Text style={[tbl.badgeText, { color: '#4338CA', fontWeight: '600' }]} numberOfLines={1}>{lead.source}</Text>
-                                            </View>
-                                        ) : (
-                                            <Text style={tbl.cellText}>—</Text>
+                                                <Text style={{ fontSize: 11, color: '#6B7280', marginLeft: 10, fontWeight: '500' }}>
+                                                    {lead?.customer?.name || c(lead).name || ''}
+                                                </Text>
+                                            </Pressable>
                                         )}
-                                    </View>
+                                        {/* Lead row — hidden in revisit unless group is expanded */}
+                                        {isExpanded && (
+                                            <View style={[
+                                                tbl.row, idx % 2 === 1 && tbl.rowAlt,
+                                                filter === 'revisit' && { borderLeftWidth: 3, borderLeftColor: '#C4B5FD' },
+                                            ]}>
+                                                {/* Edit + History + Call buttons */}
+                                                <View style={[tbl.cell, { width: 120, alignItems: 'center', flexDirection: 'row', gap: 0 }]}>
+                                                    <IconButton icon="pencil" size={18} onPress={() => openEdit(lead)}
+                                                        style={{ margin: 0 }} iconColor={Colors.primary} />
+                                                    <IconButton icon="history" size={18} onPress={() => openHistory(lead)}
+                                                        style={{ margin: 0 }} iconColor="#6B7280" />
+                                                    <IconButton icon="phone" size={18} onPress={() => setCallLead(lead)}
+                                                        style={{ margin: 0 }} iconColor="#16A34A" />
+                                                </View>
 
-                                    {/* Assigned To */}
-                                    <View style={[tbl.cell, { width: 140 }]}>
-                                        {lead.assignedToName ? (
-                                            <View style={[tbl.badge, { backgroundColor: '#E0F2FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }]}>
-                                                <Text style={[tbl.badgeText, { color: '#0369A1', fontWeight: '600' }]} numberOfLines={1}>{lead.assignedToName}</Text>
-                                            </View>
-                                        ) : (
-                                            <Text style={{ fontSize: 12, color: '#D1D5DB' }}>Unassigned</Text>
-                                        )}
-                                    </View>
-
-                                    {/* Call Progress */}
-                                    <View style={[tbl.cell, { width: 210 }]}>
-                                        <CallProgressCell lead={lead} />
-                                    </View>
-
-                                    {/* Next Action */}
-                                    <View style={[tbl.cell, { width: 155 }]}>
-                                        <Text style={tbl.cellText}>
-                                            {lead.nextActionDate
-                                                ? (() => {
-                                                    const d = new Date(lead.nextActionDate);
-                                                    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-                                                        + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                                                })()
-                                                : '—'}
-                                        </Text>
-                                    </View>
-
-                                    {/* Exp. Center */}
-                                    <View style={[tbl.cell, { width: 155 }]}>
-                                        <Text style={tbl.cellText} numberOfLines={2}>{lead.preferredExperienceCenter || '—'}</Text>
-                                    </View>
-
-                                    {/* Appt */}
-                                    <View style={[tbl.cell, { width: 110, flexDirection: 'column', alignItems: 'flex-start', gap: 3 }]}>
-                                        <BoolBadge value={lead.appointmentBooked} />
-                                        {lead.bookedDate && (
-                                            <Text style={{ fontSize: 11, color: '#374151' }}>📅 {lead.bookedDate}</Text>
-                                        )}
-                                    </View>
-
-                                    {/* Products — last */}
-                                    <View style={[tbl.cell, { width: 180, flexWrap: 'wrap', gap: 4 }]}>
-                                        {lead.leadProducts && lead.leadProducts.length > 0
-                                            ? lead.leadProducts.map((lp: any) => (
-                                                <View key={lp.id ?? lp.productTitle} style={{ marginBottom: 3 }}>
-                                                    <View style={{ backgroundColor: '#EEF2FF', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 2 }}>
-                                                        <Text style={{ fontSize: 11, color: '#4F46E5', fontWeight: '600' }} numberOfLines={1}>{lp.productTitle}</Text>
-                                                    </View>
-                                                    {/* Show selected options below the product chip */}
-                                                    {(lp.options ?? []).map((opt: any) => (
-                                                        <View key={opt.optionName} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 }}>
-                                                            <Text style={{ fontSize: 9, color: '#9CA3AF' }}>{opt.optionName}:</Text>
-                                                            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
-                                                                <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '600' }}>{opt.optionValue}</Text>
+                                                {/* Status */}
+                                                <View style={[tbl.cell, { width: 130 }]}>
+                                                    {(() => {
+                                                        const s = leadStatusStyle(lead.status);
+                                                        return (
+                                                            <View style={[tbl.badge, { backgroundColor: s.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }]}>
+                                                                <Text style={[tbl.badgeText, { color: s.color, fontWeight: '700' }]}>{s.label}</Text>
                                                             </View>
-                                                        </View>
-                                                    ))}
+                                                        );
+                                                    })()}
                                                 </View>
-                                            ))
-                                            : <Text style={tbl.cellText}>—</Text>
-                                        }
-                                    </View>
-                                </View>
-                            ))}
+
+                                                <View style={[tbl.cell, { width: 150 }]}>
+                                                    <Text style={tbl.nameText} numberOfLines={2}>{c(lead).name || '—'}</Text>
+                                                </View>
+                                                <View style={[tbl.cell, { width: 135 }]}>
+                                                    <Text style={tbl.cellText}>{c(lead).phone || '—'}</Text>
+                                                </View>
+                                                <View style={[tbl.cell, { width: 100 }]}>
+                                                    <Text style={tbl.cellText}>{c(lead).city || '—'}</Text>
+                                                </View>
+
+                                                {/* Source */}
+                                                <View style={[tbl.cell, { width: 120 }]}>
+                                                    {lead.source ? (
+                                                        <View style={[tbl.badge, { backgroundColor: '#EEF2FF', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 }]}>
+                                                            <Text style={[tbl.badgeText, { color: '#4338CA', fontWeight: '600' }]} numberOfLines={1}>{lead.source}</Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Text style={tbl.cellText}>—</Text>
+                                                    )}
+                                                </View>
+
+                                                {/* Assigned To */}
+                                                <View style={[tbl.cell, { width: 140 }]}>
+                                                    {lead.assignedToName ? (
+                                                        <View style={[tbl.badge, { backgroundColor: '#E0F2FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }]}>
+                                                            <Text style={[tbl.badgeText, { color: '#0369A1', fontWeight: '600' }]} numberOfLines={1}>{lead.assignedToName}</Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Text style={{ fontSize: 12, color: '#D1D5DB' }}>Unassigned</Text>
+                                                    )}
+                                                </View>
+
+                                                {/* Call Progress */}
+                                                <View style={[tbl.cell, { width: 210 }]}>
+                                                    <CallProgressCell lead={lead} />
+                                                </View>
+
+                                                {/* Next Action */}
+                                                <View style={[tbl.cell, { width: 155 }]}>
+                                                    <Text style={tbl.cellText}>
+                                                        {lead.nextActionDate
+                                                            ? (() => {
+                                                                const d = new Date(lead.nextActionDate);
+                                                                return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                                                                    + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                                            })()
+                                                            : '—'}
+                                                    </Text>
+                                                </View>
+
+                                                {/* Exp. Center */}
+                                                <View style={[tbl.cell, { width: 155 }]}>
+                                                    <Text style={tbl.cellText} numberOfLines={2}>{lead.preferredExperienceCenter || '—'}</Text>
+                                                </View>
+
+                                                {/* Appt */}
+                                                <View style={[tbl.cell, { width: 110, flexDirection: 'column', alignItems: 'flex-start', gap: 3 }]}>
+                                                    <BoolBadge value={lead.appointmentBooked} />
+                                                    {lead.bookedDate && (
+                                                        <Text style={{ fontSize: 11, color: '#374151' }}>📅 {lead.bookedDate}</Text>
+                                                    )}
+                                                </View>
+
+                                                {/* Products — last */}
+                                                <View style={[tbl.cell, { width: 180, flexWrap: 'wrap', gap: 4 }]}>
+                                                    {lead.leadProducts && lead.leadProducts.length > 0
+                                                        ? lead.leadProducts.map((lp: any) => (
+                                                            <View key={lp.id ?? lp.productTitle} style={{ marginBottom: 3 }}>
+                                                                <View style={{ backgroundColor: '#EEF2FF', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 2 }}>
+                                                                    <Text style={{ fontSize: 11, color: '#4F46E5', fontWeight: '600' }} numberOfLines={1}>{lp.productTitle}</Text>
+                                                                </View>
+                                                                {/* Show selected options below the product chip */}
+                                                                {(lp.options ?? []).map((opt: any) => (
+                                                                    <View key={opt.optionName} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 }}>
+                                                                        <Text style={{ fontSize: 9, color: '#9CA3AF' }}>{opt.optionName}:</Text>
+                                                                        <View style={{ backgroundColor: '#F0FDF4', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                                                            <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '600' }}>{opt.optionValue}</Text>
+                                                                        </View>
+                                                                    </View>
+                                                                ))}
+                                                            </View>
+                                                        ))
+                                                        : <Text style={tbl.cellText}>—</Text>
+                                                    }
+                                                </View>
+                                            </View>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
 
                         </View>
                     </ScrollView>
