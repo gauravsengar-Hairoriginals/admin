@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, Alert, TextInput as RNTextInput } from 'react-native';
 import {
     Text,
     DataTable,
@@ -14,6 +14,7 @@ import {
     Dialog,
     Chip,
     Menu,
+    Checkbox,
 } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
@@ -64,6 +65,14 @@ export default function LeadsScreen() {
     const [callerSearch, setCallerSearch] = useState('');
     const [assignLoading, setAssignLoading] = useState(false);
     const [selectedCaller, setSelectedCaller] = useState<any>(null);
+
+    // ─── Per-column filters ─────────────────────────────────────────
+    const [colFilters, setColFilters] = useState<Record<string, string>>({});
+
+    // ─── Multi-select state ─────────────────────────────────────────
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+    const [bulkAssignLoading, setBulkAssignLoading] = useState(false);
 
     // ─── Fetch leads ──────────────────────────────────────────────────────
     const fetchLeads = useCallback(async (p = 1, search = searchQuery) => {
@@ -237,6 +246,105 @@ export default function LeadsScreen() {
         return c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || '—';
     };
 
+    // ─── Apply per-column filters (client-side on loaded page) ─────────────
+    const filteredLeads = leads.filter(lead => {
+        for (const [key, val] of Object.entries(colFilters)) {
+            if (!val) continue;
+            const term = val.toLowerCase();
+            const c = lead.customer ?? {};
+            switch (key) {
+                case 'name': if (!(c.name ?? '').toLowerCase().includes(term)) return false; break;
+                case 'phone': if (!(c.phone ?? '').toLowerCase().includes(term)) return false; break;
+                case 'city': if (!(c.city ?? '').toLowerCase().includes(term)) return false; break;
+                case 'source': if (!(lead.source ?? '').toLowerCase().includes(term)) return false; break;
+                case 'campaign': if (!(lead.campaignId ?? '').toLowerCase().includes(term)) return false; break;
+                case 'status': if (!(lead.status ?? '').toLowerCase().includes(term)) return false; break;
+                case 'assignedTo': if (!(lead.assignedToName ?? '').toLowerCase().includes(term)) return false; break;
+                default: break;
+            }
+        }
+        return true;
+    });
+
+    const LEADS_FILTER_COLS = [
+        { key: 'select', flex: 0.5, skip: true },
+        { key: 'name', flex: 1.5 },
+        { key: 'phone', flex: 1.2 },
+        { key: 'city', flex: 1.5 },
+        { key: 'source', flex: 1 },
+        { key: 'campaign', flex: 1 },
+        { key: 'status', flex: 1 },
+        { key: 'assignedTo', flex: 1.8 },
+        { key: 'date', flex: 1.2, skip: true },
+        { key: 'actions', flex: 1, skip: true },
+    ];
+
+    // ─── Multi-select helpers ───────────────────────────────────────
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    };
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredLeads.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredLeads.map(l => l.id)));
+        }
+    };
+    const allSelected = filteredLeads.length > 0 && selectedIds.size === filteredLeads.length;
+
+    // ─── Bulk Assign handler ──────────────────────────────────────
+    const handleBulkAssign = async () => {
+        if (!selectedCaller || selectedIds.size === 0) return;
+        setBulkAssignLoading(true);
+        try {
+            await api.patch('/leads/bulk-assign', {
+                leadIds: Array.from(selectedIds),
+                callerId: selectedCaller.id,
+            });
+            // Update local state
+            setLeads(prev => prev.map(l => {
+                if (selectedIds.has(l.id)) {
+                    return { ...l, assignedToId: selectedCaller.id, assignedToName: selectedCaller.name };
+                }
+                return l;
+            }));
+            setSelectedIds(new Set());
+            setBulkAssignOpen(false);
+            setSelectedCaller(null);
+        } catch (err: any) {
+            console.error('Bulk assign failed:', err?.response?.data ?? err);
+        } finally {
+            setBulkAssignLoading(false);
+        }
+    };
+
+    // ─── CSV Export ────────────────────────────────────────────
+    const downloadCSV = () => {
+        const rows = filteredLeads.map(l => ({
+            Name: (l.customer?.name ?? '').replace(/,/g, ' '),
+            Phone: l.customer?.phone ?? '',
+            City: l.customer?.city ?? '',
+            Source: l.source ?? '',
+            Campaign: l.campaignId ?? '',
+            Status: l.status ?? '',
+            'Assigned To': l.assignedToName ?? '',
+            Date: l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
+        }));
+        const headers = Object.keys(rows[0] ?? {});
+        const csv = [headers.join(','), ...rows.map(r => headers.map(h => `"${(r as any)[h] ?? ''}"`).join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `leads_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     // ─── Render ───────────────────────────────────────────────────────────
     return (
         <AdminPageLayout>
@@ -247,7 +355,7 @@ export default function LeadsScreen() {
                         Leads
                     </Text>
                     <Text variant="bodyMedium" style={{ color: Colors.textSecondary }}>
-                        {total} lead{total !== 1 ? 's' : ''} captured
+                        {total} lead{total !== 1 ? 's' : ''} captured{Object.values(colFilters).some(v => !!v) ? ` (showing ${filteredLeads.length})` : ''}
                     </Text>
                 </View>
                 <View style={styles.headerActions}>
@@ -259,6 +367,9 @@ export default function LeadsScreen() {
                         style={styles.searchBar}
                         inputStyle={{ minHeight: 0 }}
                     />
+                    <Button mode="outlined" icon="download" onPress={downloadCSV} compact style={{ marginLeft: 8 }}>
+                        Export CSV
+                    </Button>
                     <Button mode="contained" icon="account-plus" onPress={openAddModal} style={{ marginLeft: 8 }}>
                         Add Lead
                     </Button>
@@ -282,8 +393,14 @@ export default function LeadsScreen() {
                     <ActivityIndicator size="large" style={{ margin: 50 }} />
                 ) : (
                     <ScrollView horizontal refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-                        <DataTable style={{ minWidth: 1200 }}>
-                            <DataTable.Header style={styles.tableHeader}>
+                        <DataTable style={{ minWidth: 1400 }}>
+                            <DataTable.Header style={[styles.tableHeader, { paddingVertical: 8 }]}>
+                                <DataTable.Title style={{ flex: 0.5 }}>
+                                    <Checkbox
+                                        status={allSelected ? 'checked' : selectedIds.size > 0 ? 'indeterminate' : 'unchecked'}
+                                        onPress={toggleSelectAll}
+                                    />
+                                </DataTable.Title>
                                 <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>Name</DataTable.Title>
                                 <DataTable.Title style={{ flex: 1.2 }} textStyle={styles.tableTitle}>Phone</DataTable.Title>
                                 <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>City</DataTable.Title>
@@ -295,13 +412,42 @@ export default function LeadsScreen() {
                                 <DataTable.Title textStyle={styles.tableTitle}>Actions</DataTable.Title>
                             </DataTable.Header>
 
-                            {leads.length === 0 ? (
+                            {/* Filter row */}
+                            <View style={{ flexDirection: 'row', backgroundColor: '#FAFBFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', paddingVertical: 6, paddingHorizontal: 12 }}>
+                                {LEADS_FILTER_COLS.map(fc => (
+                                    <View key={fc.key} style={{ flex: fc.flex ?? 1, paddingHorizontal: 4 }}>
+                                        {fc.skip ? <View /> : (
+                                            <RNTextInput
+                                                placeholder="Filter…"
+                                                placeholderTextColor="#9CA3AF"
+                                                value={colFilters[fc.key] ?? ''}
+                                                onChangeText={(text) => setColFilters(prev => ({ ...prev, [fc.key]: text }))}
+                                                style={{
+                                                    borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 6,
+                                                    paddingHorizontal: 8, paddingVertical: 4, fontSize: 11,
+                                                    color: '#374151', backgroundColor: '#fff',
+                                                }}
+                                            />
+                                        )}
+                                    </View>
+                                ))}
+                            </View>
+
+                            {filteredLeads.length === 0 ? (
                                 <View style={{ padding: 32, alignItems: 'center' }}>
-                                    <Text style={{ color: Colors.textSecondary }}>No leads found.</Text>
+                                    <Text style={{ color: Colors.textSecondary }}>
+                                        {Object.values(colFilters).some(v => !!v) ? '🔍 No leads match the column filters' : 'No leads found.'}
+                                    </Text>
                                 </View>
                             ) : (
-                                leads.map(lead => (
-                                    <DataTable.Row key={lead.id} style={styles.tableRow}>
+                                filteredLeads.map(lead => (
+                                    <DataTable.Row key={lead.id} style={[styles.tableRow, selectedIds.has(lead.id) && { backgroundColor: '#E3F2FD' }]}>
+                                        <DataTable.Cell style={{ flex: 0.5 }}>
+                                            <Checkbox
+                                                status={selectedIds.has(lead.id) ? 'checked' : 'unchecked'}
+                                                onPress={() => toggleSelect(lead.id)}
+                                            />
+                                        </DataTable.Cell>
                                         <DataTable.Cell style={{ flex: 1.5 }}>
                                             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>{getLeadName(lead)}</Text>
                                         </DataTable.Cell>
@@ -382,7 +528,101 @@ export default function LeadsScreen() {
                 )}
             </Card>
 
-            {/* ── Assign Modal ── */}
+            {/* ── Floating Bulk Action Bar ── */}
+            {selectedIds.size > 0 && (
+                <View style={{
+                    position: 'absolute' as any, bottom: 24, left: '50%', transform: [{ translateX: -200 }],
+                    width: 400, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    backgroundColor: '#1E293B', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12,
+                    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, elevation: 8,
+                }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
+                        {selectedIds.size} lead{selectedIds.size > 1 ? 's' : ''} selected
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <Button
+                            mode="contained"
+                            icon="account-arrow-right"
+                            buttonColor="#3B82F6"
+                            onPress={() => { setBulkAssignOpen(true); setSelectedCaller(null); setCallerSearch(''); fetchCallers(); }}
+                            compact
+                        >
+                            Bulk Assign
+                        </Button>
+                        <Button
+                            mode="text"
+                            textColor="#94A3B8"
+                            onPress={() => setSelectedIds(new Set())}
+                            compact
+                        >
+                            Clear
+                        </Button>
+                    </View>
+                </View>
+            )}
+
+            {/* ── Bulk Assign Modal ── */}
+            <Portal>
+                <Modal
+                    visible={bulkAssignOpen}
+                    onDismiss={() => setBulkAssignOpen(false)}
+                    contentContainerStyle={[styles.modal, { maxWidth: 460 }]}
+                >
+                    <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                        Bulk Assign {selectedIds.size} Lead{selectedIds.size > 1 ? 's' : ''}
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: Colors.textSecondary, marginBottom: 16 }}>
+                        Select a lead caller to assign all selected leads to
+                    </Text>
+
+                    <Searchbar
+                        placeholder="Search callers…"
+                        value={callerSearch}
+                        onChangeText={v => { setCallerSearch(v); fetchCallers(v); }}
+                        style={{ marginBottom: 12 }}
+                        inputStyle={{ minHeight: 0 }}
+                    />
+
+                    <ScrollView style={{ maxHeight: 240 }}>
+                        {callers.map(caller => (
+                            <View key={caller.id}>
+                                <View
+                                    style={[
+                                        styles.callerRow,
+                                        selectedCaller?.id === caller.id && styles.callerRowSelected,
+                                    ]}
+                                >
+                                    <View style={{ flex: 1 }}>
+                                        <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{caller.name}</Text>
+                                        <Text variant="bodySmall" style={{ color: Colors.textSecondary }}>{caller.phone}</Text>
+                                    </View>
+                                    <Button
+                                        mode={selectedCaller?.id === caller.id ? 'contained' : 'outlined'}
+                                        onPress={() => setSelectedCaller(caller)}
+                                        compact
+                                    >
+                                        {selectedCaller?.id === caller.id ? 'Selected' : 'Select'}
+                                    </Button>
+                                </View>
+                            </View>
+                        ))}
+                    </ScrollView>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                        <Button onPress={() => setBulkAssignOpen(false)}>Cancel</Button>
+                        <Button
+                            mode="contained"
+                            onPress={handleBulkAssign}
+                            loading={bulkAssignLoading}
+                            disabled={!selectedCaller}
+                        >
+                            Assign to {selectedCaller?.name ?? '...'}
+                        </Button>
+                    </View>
+                </Modal>
+            </Portal>
+
+            {/* ── Assign Modal (single) ── */}
             <Portal>
                 <Modal
                     visible={!!assignTarget}
@@ -579,7 +819,6 @@ const styles = StyleSheet.create({
     tableCard: {
         backgroundColor: Colors.surface,
         borderRadius: 8,
-        overflow: 'hidden',
     },
     tableHeader: {
         backgroundColor: '#F5F5F5',

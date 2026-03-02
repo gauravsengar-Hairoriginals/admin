@@ -5,6 +5,7 @@ import {
     ScrollView,
     Pressable,
     Platform,
+    TextInput as RNTextInput,
 } from 'react-native';
 import {
     Text,
@@ -27,6 +28,7 @@ const CALL_OPTIONS = [
     { label: 'RNR/Disconnect/Busy', value: 'RNR/Disconnect/Busy', color: '#7B1FA2', bg: '#F3E5F5' },
     { label: 'Callback', value: 'Requested callback', color: '#F57F17', bg: '#FFFDE7' },
     { label: 'Interested (NotSure)', value: 'Interested (NotSure)', color: '#0369A1', bg: '#E0F2FE' },
+    { label: 'Not Interested', value: 'Not Interested', color: '#B71C1C', bg: '#FFEBEE' },
     { label: 'Interested', value: 'Interested', color: '#2E7D32', bg: '#E8F5E9' },
     { label: 'Wrong Number', value: 'Wrong Number', color: '#B71C1C', bg: '#FFEBEE' },
 ];
@@ -61,6 +63,7 @@ const COLS = [
     { key: 'phone', label: 'Phone', width: 135 },
     { key: 'city', label: 'City', width: 100 },
     { key: 'source', label: 'Source', width: 120 },
+    { key: 'assignedTo', label: 'Assigned To', width: 140 },
     { key: 'callProgress', label: 'Call Progress', width: 210 },
     { key: 'nextActionDate', label: 'Next Action', width: 155 },
     { key: 'expCenter', label: 'Exp. Center', width: 155 },
@@ -70,7 +73,8 @@ const COLS = [
 const TOTAL_WIDTH = COLS.reduce((s, c) => s + c.width, 0);
 
 // ── qkonnect Click-to-Call API ────────────────────────────────────────────────
-const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
+//const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
+const QKONNECT_API_KEY = '6340a658-13d3-11f1-bec8-6045bdaaffcb';
 
 function CallConfirmModal({
     lead, agentPhone, onClose,
@@ -390,6 +394,117 @@ function HistoryRow({ item, accentColor = '#6366F1' }: { item: any; accentColor?
     );
 }
 
+// ── Accordion Episode: summary header + expandable detail rows ────────────────
+function AccordionEpisode({ title, emoji, history, palette, status, defaultOpen = false }: {
+    title: string; emoji: string; history: any[]; status?: string;
+    palette: { color: string; bg: string }; defaultOpen?: boolean;
+}) {
+    const [open, setOpen] = useState(defaultOpen);
+    const count = history.length;
+    return (
+        <View style={{
+            borderRadius: 12, overflow: 'hidden',
+            borderWidth: 1.5, borderColor: palette.color,
+        }}>
+            <Pressable
+                onPress={() => setOpen(o => !o)}
+                style={{
+                    backgroundColor: palette.bg, paddingHorizontal: 14, paddingVertical: 12,
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                }}
+            >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: palette.color }}>
+                        {emoji} {title}
+                    </Text>
+                    <View style={{
+                        backgroundColor: palette.color, borderRadius: 10,
+                        minWidth: 22, height: 20, alignItems: 'center', justifyContent: 'center',
+                        paddingHorizontal: 6,
+                    }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>
+                            {count}
+                        </Text>
+                    </View>
+                    {status && (() => {
+                        const s = LEAD_STATUS_OPTIONS.find(o => o.value === status) ?? { label: status, color: '#6B7280', bg: '#F3F4F6' };
+                        return (
+                            <View style={{
+                                backgroundColor: s.bg, borderRadius: 8,
+                                paddingHorizontal: 8, paddingVertical: 3,
+                                borderWidth: 1, borderColor: s.color,
+                            }}>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: s.color }}>{s.label}</Text>
+                            </View>
+                        );
+                    })()}
+                </View>
+                <Text style={{ fontSize: 16, color: palette.color }}>
+                    {open ? '▲' : '▼'}
+                </Text>
+            </Pressable>
+
+            {/* Summary line always visible: latest change preview */}
+            {!open && count > 0 && (
+                <View style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#FAFBFF' }}>
+                    <Text style={{ fontSize: 12, color: '#6B7280' }} numberOfLines={1}>
+                        Latest: <Text style={{ fontWeight: '600', color: '#374151' }}>{history[0]?.fieldName}</Text>
+                        {' '}→ {history[0]?.newValue || '(empty)'}
+                        {count > 1 ? `  ·  +${count - 1} more` : ''}
+                    </Text>
+                </View>
+            )}
+
+            {open && (
+                <View style={{ padding: 12 }}>
+                    {count === 0 ? (
+                        <Text style={{ fontSize: 13, color: Colors.textSecondary, paddingLeft: 4 }}>No edits recorded.</Text>
+                    ) : (
+                        <View style={{ gap: 8 }}>
+                            {history.map((item: any) => (
+                                <HistoryRow key={item.id} item={item} accentColor={palette.color} />
+                            ))}
+                        </View>
+                    )}
+                </View>
+            )}
+        </View>
+    );
+}
+
+function HistoryAccordionView({ historyData }: { historyData: { currentLead: any; priorLeads: any[] } }) {
+    return (
+        <View style={{ gap: 16 }}>
+            {/* Current lead — expanded by default */}
+            <AccordionEpisode
+                emoji="📌"
+                title="This Lead"
+                history={historyData.currentLead.history}
+                palette={EPISODE_PALETTE[0]}
+                status={historyData.currentLead.status}
+                defaultOpen={false}
+            />
+
+            {/* Prior visits — collapsed by default */}
+            {historyData.priorLeads.map((priorLead: any, idx: number) => {
+                const palette = EPISODE_PALETTE[(idx + 1) % EPISODE_PALETTE.length];
+                const dateStr = new Date(priorLead.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                return (
+                    <AccordionEpisode
+                        key={priorLead.id}
+                        emoji="🔄"
+                        title={`Previous Visit ${historyData.priorLeads.length - idx} — ${dateStr}`}
+                        history={priorLead.history}
+                        palette={palette}
+                        status={priorLead.status}
+                        defaultOpen={false}
+                    />
+                );
+            })}
+        </View>
+    );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function LeadManagementScreen() {
     const [leads, setLeads] = useState<any[]>([]);
@@ -397,6 +512,9 @@ export default function LeadManagementScreen() {
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'fresh' | 'reminder' | 'revisit' | 'converted' | 'dropped'>('all');
     const [products, setProducts] = useState<{ id: string; title: string; options: { name: string; values: string[] }[] }[]>([]);
+
+    // ── Per-column filters ────────────────────────────────────────────────
+    const [colFilters, setColFilters] = useState<Record<string, string>>({});
 
     const [editTarget, setEditTarget] = useState<any>(null);
     const [editForm, setEditForm] = useState<any>({});
@@ -442,6 +560,13 @@ export default function LeadManagementScreen() {
 
     const openEdit = (lead: any) => {
         setEditTarget(lead);
+        // Convert leadProducts (two-layer) into local form shape
+        const formProducts = (lead.leadProducts ?? []).map((lp: any) => ({
+            productId: lp.productId ?? undefined,
+            productTitle: lp.productTitle,
+            quantity: lp.quantity ?? 1,
+            options: (lp.options ?? []).map((o: any) => ({ name: o.optionName, value: o.optionValue })),
+        }));
         setEditForm({
             // Customer-level fields (editable)
             name: lead.customer?.name ?? '',
@@ -458,13 +583,19 @@ export default function LeadManagementScreen() {
             bookedDate: lead.bookedDate ?? '',
             remarks: lead.remarks ?? '',
             preferredExperienceCenter: lead.preferredExperienceCenter ?? '',
-            preferredProducts: lead.preferredProducts ?? [],
-            preferredProductOptions: lead.preferredProductOptions ?? {},
+            products: formProducts,
         });
     };
 
     const saveEdit = async () => {
         if (!editTarget) return;
+        // Validate: nextActionDate required for certain call statuses
+        const REQUIRES_NAD = ['Requested callback', 'Interested (NotSure)', 'Interested'];
+        const activeCall = editForm.call3 || editForm.call2 || editForm.call1 || '';
+        if (REQUIRES_NAD.includes(activeCall) && !editForm.nextActionDate) {
+            alert(`Next Action Date is required when call status is "${activeCall}". Please set it before saving.`);
+            return;
+        }
         setEditLoading(true);
         try {
             // Enforce sequential using the *already-saved* lead as baseline:
@@ -475,15 +606,24 @@ export default function LeadManagementScreen() {
             if (!effectiveCall1) { raw.call2 = undefined; raw.call3 = undefined; }
             else if (!effectiveCall2) { raw.call3 = undefined; }
 
-            // Strip empty strings & empty arrays so backend validators don't reject them
+            // Strip empty strings so backend validators don't reject them
             const payload: any = {};
             for (const key of Object.keys(raw)) {
+                if (key === 'products') continue; // handled separately below
                 const v = raw[key];
-                if (v === '' || v === null) continue;              // skip empty strings / nulls
-                if (Array.isArray(v) && v.length === 0) continue;  // skip empty arrays
-                if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue; // skip empty objects
+                if (v === '' || v === null) continue;
+                if (Array.isArray(v) && v.length === 0) continue;
+                if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue;
                 payload[key] = v;
             }
+
+            // Always send products array (even if empty = clear products)
+            payload.products = (raw.products ?? []).map((p: any) => ({
+                productId: p.productId || undefined,
+                productTitle: p.productTitle,
+                quantity: p.quantity ?? 1,
+                options: (p.options ?? []).filter((o: any) => o.name && o.value),
+            }));
 
             const res = await api.patch(`/leads/${editTarget.id}`, payload);
             setLeads(prev => prev.map(l => l.id === editTarget.id ? { ...l, ...res.data } : l));
@@ -531,6 +671,61 @@ export default function LeadManagementScreen() {
         { key: 'dropped', label: '🚫 Dropped', count: droppedLeads.length, color: '#9CA3AF', bg: '#F3F4F6' },
     ] as const;
 
+    // ── Apply per-column text filters ──────────────────────────────────────
+    const colFilteredLeads = filteredLeads.filter(lead => {
+        for (const [key, val] of Object.entries(colFilters)) {
+            if (!val) continue;
+            const term = val.toLowerCase();
+            switch (key) {
+                case 'name': if (!(c(lead).name ?? '').toLowerCase().includes(term)) return false; break;
+                case 'phone': if (!(c(lead).phone ?? '').toLowerCase().includes(term)) return false; break;
+                case 'city': if (!(c(lead).city ?? '').toLowerCase().includes(term)) return false; break;
+                case 'source': if (!(lead.source ?? '').toLowerCase().includes(term)) return false; break;
+                case 'assignedTo': if (!(lead.assignedToName ?? '').toLowerCase().includes(term)) return false; break;
+                case 'status': if (!(lead.status ?? '').toLowerCase().includes(term)) return false; break;
+                case 'expCenter': if (!(lead.preferredExperienceCenter ?? '').toLowerCase().includes(term)) return false; break;
+                case 'preferredProducts': {
+                    const prodText = (lead.leadProducts ?? []).map((lp: any) => lp.productTitle).join(' ').toLowerCase();
+                    if (!prodText.includes(term)) return false;
+                    break;
+                }
+                default: break;
+            }
+        }
+        return true;
+    });
+
+    const hasActiveColFilters = Object.values(colFilters).some(v => !!v);
+
+    // ── CSV Export ────────────────────────────────────────────────
+    const downloadCSV = () => {
+        const rows = colFilteredLeads.map(l => ({
+            Name: (c(l).name ?? '').replace(/,/g, ' '),
+            Phone: c(l).phone ?? '',
+            City: c(l).city ?? '',
+            Source: l.source ?? '',
+            Status: l.status ?? '',
+            'Assigned To': l.assignedToName ?? '',
+            'Call 1': l.call1 ?? '',
+            'Call 2': l.call2 ?? '',
+            'Call 3': l.call3 ?? '',
+            'Next Action': l.nextActionDate ? new Date(l.nextActionDate).toLocaleDateString('en-IN') : '',
+            'Exp. Center': l.preferredExperienceCenter ?? '',
+            'Appt Booked': l.appointmentBooked ? 'Yes' : 'No',
+            Products: (l.leadProducts ?? []).map((lp: any) => lp.productTitle).join(', '),
+            Date: l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
+        }));
+        const headers = Object.keys(rows[0] ?? {});
+        const csv = [headers.join(','), ...rows.map(r => headers.map(h => `"${(r as any)[h] ?? ''}"`).join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `my_leads_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <AdminPageLayout>
             {/* ── Header ── */}
@@ -538,7 +733,8 @@ export default function LeadManagementScreen() {
                 <View style={styles.headerLeft}>
                     <Text style={styles.headerTitle}>My Leads</Text>
                     <Text style={styles.headerSubtitle}>
-                        {filteredLeads.length} lead{filteredLeads.length !== 1 ? 's' : ''}{filter !== 'all' ? ` (${filter})` : ''}
+                        {colFilteredLeads.length} lead{colFilteredLeads.length !== 1 ? 's' : ''}{filter !== 'all' ? ` (${filter})` : ''}
+                        {hasActiveColFilters ? ' (filtered)' : ''}
                     </Text>
                 </View>
                 <View style={styles.headerRight}>
@@ -552,6 +748,9 @@ export default function LeadManagementScreen() {
                     />
                     <Button mode="outlined" icon="refresh" onPress={() => loadLeads(search)} compact>
                         Refresh
+                    </Button>
+                    <Button mode="outlined" icon="download" onPress={downloadCSV} compact style={{ marginLeft: 8 }}>
+                        Export CSV
                     </Button>
                 </View>
             </View>
@@ -590,11 +789,19 @@ export default function LeadManagementScreen() {
             <Card mode="elevated" elevation={1} style={styles.tableCard}>
                 {loading ? (
                     <ActivityIndicator size="large" style={{ margin: 60 }} />
-                ) : filteredLeads.length === 0 ? (
+                ) : colFilteredLeads.length === 0 ? (
                     <View style={{ padding: 48, alignItems: 'center' }}>
                         <Text style={{ color: Colors.textSecondary, fontSize: 15 }}>
-                            {filter === 'fresh' ? '🎉 No fresh leads' : filter === 'reminder' ? '✅ No pending reminders' : 'No leads assigned to you yet.'}
+                            {hasActiveColFilters ? '🔍 No leads match the column filters'
+                                : filter === 'fresh' ? '🎉 No fresh leads'
+                                    : filter === 'reminder' ? '✅ No pending reminders'
+                                        : 'No leads assigned to you yet.'}
                         </Text>
+                        {hasActiveColFilters && (
+                            <Button mode="text" onPress={() => setColFilters({})} style={{ marginTop: 8 }}>
+                                Clear all filters
+                            </Button>
+                        )}
                     </View>
                 ) : (
                     <ScrollView horizontal={TOTAL_WIDTH > 1200} showsHorizontalScrollIndicator>
@@ -609,8 +816,33 @@ export default function LeadManagementScreen() {
                                 ))}
                             </View>
 
+                            {/* Filter row */}
+                            <View style={[tbl.headerRow, { backgroundColor: '#FAFBFF', borderBottomColor: '#E5E7EB', paddingVertical: 4 }]}>
+                                {COLS.map(col => {
+                                    // Skip non-filterable columns
+                                    if (['actions', 'callProgress', 'nextActionDate', 'appointmentBooked'].includes(col.key)) {
+                                        return <View key={col.key} style={{ width: col.width, paddingHorizontal: 4 }} />;
+                                    }
+                                    return (
+                                        <View key={col.key} style={{ width: col.width, paddingHorizontal: 4 }}>
+                                            <RNTextInput
+                                                placeholder="Filter…"
+                                                placeholderTextColor="#9CA3AF"
+                                                value={colFilters[col.key] ?? ''}
+                                                onChangeText={(text) => setColFilters(prev => ({ ...prev, [col.key]: text }))}
+                                                style={{
+                                                    borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 6,
+                                                    paddingHorizontal: 8, paddingVertical: 4, fontSize: 11,
+                                                    color: '#374151', backgroundColor: '#fff',
+                                                }}
+                                            />
+                                        </View>
+                                    );
+                                })}
+                            </View>
+
                             {/* Data rows */}
-                            {filteredLeads.map((lead, idx) => (
+                            {colFilteredLeads.map((lead, idx) => (
                                 <View key={lead.id} style={[tbl.row, idx % 2 === 1 && tbl.rowAlt]}>
                                     {/* Edit + History + Call buttons */}
                                     <View style={[tbl.cell, { width: 120, alignItems: 'center', flexDirection: 'row', gap: 0 }]}>
@@ -655,6 +887,17 @@ export default function LeadManagementScreen() {
                                         )}
                                     </View>
 
+                                    {/* Assigned To */}
+                                    <View style={[tbl.cell, { width: 140 }]}>
+                                        {lead.assignedToName ? (
+                                            <View style={[tbl.badge, { backgroundColor: '#E0F2FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }]}>
+                                                <Text style={[tbl.badgeText, { color: '#0369A1', fontWeight: '600' }]} numberOfLines={1}>{lead.assignedToName}</Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={{ fontSize: 12, color: '#D1D5DB' }}>Unassigned</Text>
+                                        )}
+                                    </View>
+
                                     {/* Call Progress */}
                                     <View style={[tbl.cell, { width: 210 }]}>
                                         <CallProgressCell lead={lead} />
@@ -688,18 +931,18 @@ export default function LeadManagementScreen() {
 
                                     {/* Products — last */}
                                     <View style={[tbl.cell, { width: 180, flexWrap: 'wrap', gap: 4 }]}>
-                                        {lead.preferredProducts && lead.preferredProducts.length > 0
-                                            ? lead.preferredProducts.map((p: string) => (
-                                                <View key={p} style={{ marginBottom: 3 }}>
+                                        {lead.leadProducts && lead.leadProducts.length > 0
+                                            ? lead.leadProducts.map((lp: any) => (
+                                                <View key={lp.id ?? lp.productTitle} style={{ marginBottom: 3 }}>
                                                     <View style={{ backgroundColor: '#EEF2FF', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 2 }}>
-                                                        <Text style={{ fontSize: 11, color: '#4F46E5', fontWeight: '600' }} numberOfLines={1}>{p}</Text>
+                                                        <Text style={{ fontSize: 11, color: '#4F46E5', fontWeight: '600' }} numberOfLines={1}>{lp.productTitle}</Text>
                                                     </View>
                                                     {/* Show selected options below the product chip */}
-                                                    {lead.preferredProductOptions?.[p] && Object.entries(lead.preferredProductOptions[p]).map(([optName, optVal]) => (
-                                                        <View key={optName} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 }}>
-                                                            <Text style={{ fontSize: 9, color: '#9CA3AF' }}>{optName}:</Text>
+                                                    {(lp.options ?? []).map((opt: any) => (
+                                                        <View key={opt.optionName} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 }}>
+                                                            <Text style={{ fontSize: 9, color: '#9CA3AF' }}>{opt.optionName}:</Text>
                                                             <View style={{ backgroundColor: '#F0FDF4', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
-                                                                <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '600' }}>{optVal as string}</Text>
+                                                                <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '600' }}>{opt.optionValue}</Text>
                                                             </View>
                                                         </View>
                                                     ))}
@@ -741,6 +984,7 @@ export default function LeadManagementScreen() {
                                     { label: 'Source', value: editTarget?.source },
                                     { label: 'Page Type', value: editTarget?.pageType },
                                     { label: 'Campaign ID', value: editTarget?.campaignId },
+                                    { label: 'Product Interest', value: editTarget?.customerProductInterest },
                                 ].map(({ label, value }) => (
                                     <View key={label} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
                                         <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', width: 90 }}>{label}</Text>
@@ -764,6 +1008,40 @@ export default function LeadManagementScreen() {
                             </View>
                         </View>
 
+                        {/* ── Interested Products (read-only from lead form) ── */}
+                        {editTarget?.leadProducts && editTarget.leadProducts.length > 0 && (
+                            <View style={[md.section, { backgroundColor: '#FFFBEB', borderWidth: 1.5, borderColor: '#FCD34D', borderRadius: 10, padding: 12 }]}>
+                                <Text style={[md.sectionTitle, { color: '#92400E', marginBottom: 8 }]}>🛒 Interested Products (from lead form)</Text>
+                                <View style={{ gap: 8 }}>
+                                    {editTarget.leadProducts.map((lp: any) => (
+                                        <View key={lp.id} style={{
+                                            backgroundColor: '#FEF3C7', borderRadius: 8,
+                                            paddingHorizontal: 12, paddingVertical: 8,
+                                            flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6,
+                                        }}>
+                                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#78350F' }}>
+                                                {lp.productTitle}
+                                            </Text>
+                                            {lp.quantity > 1 && (
+                                                <View style={{ backgroundColor: '#92400E', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                                    <Text style={{ fontSize: 10, color: '#fff', fontWeight: '700' }}>×{lp.quantity}</Text>
+                                                </View>
+                                            )}
+                                            {(lp.options ?? []).map((opt: any) => (
+                                                <View key={opt.id ?? opt.optionName} style={{
+                                                    backgroundColor: '#FDE68A', borderRadius: 6,
+                                                    paddingHorizontal: 8, paddingVertical: 2,
+                                                }}>
+                                                    <Text style={{ fontSize: 11, color: '#78350F' }}>
+                                                        {opt.optionName}: <Text style={{ fontWeight: '700' }}>{opt.optionValue}</Text>
+                                                    </Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
+                        )}
                         {/* ── Customer Info (Editable) ── */}
                         <View style={[md.section, { paddingVertical: 10 }]}>
                             <Text style={[md.sectionTitle, { marginBottom: 8 }]}>👤 Customer Info</Text>
@@ -807,24 +1085,73 @@ export default function LeadManagementScreen() {
                             <Text style={md.sectionTitle}>📞 Call Log</Text>
                             <CallSelector
                                 stepNum={1} label="Call 1" value={editForm.call1} locked={!!editTarget?.call2}
-                                onChange={v => setEditForm((f: any) => ({ ...f, call1: v }))}
+                                onChange={v => {
+                                    setEditForm((f: any) => {
+                                        const upd: any = { ...f, call1: v };
+                                        if (v === 'RNR/Disconnect/Busy') {
+                                            const d = new Date(Date.now() + 60 * 60 * 1000);
+                                            upd.nextActionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                                        }
+                                        return upd;
+                                    });
+                                }}
                             />
                             <CallSelector
                                 stepNum={2} label="Call 2" value={editForm.call2} locked={!editTarget?.call1 || !!editTarget?.call3}
-                                onChange={v => setEditForm((f: any) => ({ ...f, call2: v }))}
+                                onChange={v => {
+                                    setEditForm((f: any) => {
+                                        const upd: any = { ...f, call2: v };
+                                        if (v === 'RNR/Disconnect/Busy') {
+                                            const d = new Date(Date.now() + 60 * 60 * 1000);
+                                            upd.nextActionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                                        }
+                                        return upd;
+                                    });
+                                }}
                             />
                             <CallSelector
                                 stepNum={3} label="Call 3" value={editForm.call3} locked={!editTarget?.call2}
-                                onChange={v => setEditForm((f: any) => ({ ...f, call3: v }))}
+                                onChange={v => {
+                                    setEditForm((f: any) => {
+                                        const upd: any = { ...f, call3: v };
+                                        if (v === 'RNR/Disconnect/Busy') {
+                                            const d = new Date(Date.now() + 60 * 60 * 1000);
+                                            upd.nextActionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                                        }
+                                        return upd;
+                                    });
+                                }}
                             />
                         </View>
 
                         {/* ── Scheduling ── */}
-                        <View style={md.section}>
-                            <Text style={md.sectionTitle}>📅 Next Action</Text>
-                            <DateTimePickerInput label="Next Action Date & Time" value={editForm.nextActionDate}
-                                onChange={v => setEditForm((f: any) => ({ ...f, nextActionDate: v }))} />
-                        </View>
+                        {(() => {
+                            const REQUIRES_NAD = ['Requested callback', 'Interested (NotSure)', 'Interested'];
+                            const activeCall = editForm.call3 || editForm.call2 || editForm.call1 || '';
+                            const nadRequired = REQUIRES_NAD.includes(activeCall);
+                            const nadMissing = nadRequired && !editForm.nextActionDate;
+                            return (
+                                <View style={[md.section, nadRequired && { borderWidth: 1.5, borderColor: nadMissing ? '#DC2626' : '#F59E0B', borderRadius: 10, padding: 12 }]}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                        <Text style={md.sectionTitle}>📅 Next Action</Text>
+                                        {nadRequired && (
+                                            <View style={{ backgroundColor: nadMissing ? '#FEE2E2' : '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                                <Text style={{ fontSize: 11, fontWeight: '700', color: nadMissing ? '#DC2626' : '#B45309' }}>
+                                                    Required for "{activeCall}"
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                    <DateTimePickerInput label="Next Action Date & Time" value={editForm.nextActionDate}
+                                        onChange={v => setEditForm((f: any) => ({ ...f, nextActionDate: v }))} />
+                                    {nadMissing && (
+                                        <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600', marginTop: 4 }}>
+                                            ⚠️ Please set a Next Action date before saving
+                                        </Text>
+                                    )}
+                                </View>
+                            );
+                        })()}
 
                         {/* ── Lead Status ── */}
                         <View style={md.section}>
@@ -904,7 +1231,7 @@ export default function LeadManagementScreen() {
                             {/* Dropdown results */}
                             {productSearch.trim().length > 0 && (() => {
                                 const term = productSearch.toLowerCase();
-                                const already: string[] = editForm.preferredProducts ?? [];
+                                const already: string[] = (editForm.products ?? []).map((p: any) => p.productTitle);
                                 const hits = products.filter(p =>
                                     p.title.toLowerCase().includes(term) && !already.includes(p.title)
                                 ).slice(0, 8);
@@ -924,7 +1251,12 @@ export default function LeadManagementScreen() {
                                                 onPress={() => {
                                                     setEditForm((f: any) => ({
                                                         ...f,
-                                                        preferredProducts: [...(f.preferredProducts ?? []), p.title],
+                                                        products: [...(f.products ?? []), {
+                                                            productId: p.id,
+                                                            productTitle: p.title,
+                                                            quantity: 1,
+                                                            options: [],
+                                                        }],
                                                     }));
                                                     setProductSearch('');
                                                 }}
@@ -942,26 +1274,24 @@ export default function LeadManagementScreen() {
                             })()}
 
                             {/* Selected products as cards with options */}
-                            {(editForm.preferredProducts ?? []).length > 0 && (
+                            {(editForm.products ?? []).length > 0 && (
                                 <View style={{ gap: 10, marginBottom: 6 }}>
-                                    {(editForm.preferredProducts ?? []).map((title: string) => {
-                                        const prod = products.find(p => p.title === title);
+                                    {(editForm.products ?? []).map((formProduct: any, prodIdx: number) => {
+                                        const prod = products.find(p => p.title === formProduct.productTitle);
                                         return (
-                                            <View key={title} style={{
+                                            <View key={formProduct.productTitle} style={{
                                                 backgroundColor: '#F8F9FF', borderRadius: 10,
                                                 borderWidth: 1.5, borderColor: '#C7D2FE',
                                                 padding: 12,
                                             }}>
                                                 {/* Product header row */}
                                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#3730A3', flex: 1, marginRight: 8 }} numberOfLines={2}>{title}</Text>
+                                                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#3730A3', flex: 1, marginRight: 8 }} numberOfLines={2}>{formProduct.productTitle}</Text>
                                                     <Pressable
-                                                        onPress={() => setEditForm((f: any) => {
-                                                            const newProds = (f.preferredProducts ?? []).filter((x: string) => x !== title);
-                                                            const newOpts = { ...(f.preferredProductOptions ?? {}) };
-                                                            delete newOpts[title];
-                                                            return { ...f, preferredProducts: newProds, preferredProductOptions: newOpts };
-                                                        })}
+                                                        onPress={() => setEditForm((f: any) => ({
+                                                            ...f,
+                                                            products: (f.products ?? []).filter((_: any, i: number) => i !== prodIdx),
+                                                        }))}
                                                         style={{ padding: 4 }}
                                                     >
                                                         <Text style={{ fontSize: 16, color: '#EF4444', lineHeight: 18 }}>✕</Text>
@@ -969,33 +1299,44 @@ export default function LeadManagementScreen() {
                                                 </View>
 
                                                 {/* Option selectors */}
-                                                {prod?.options?.map((opt: { name: string; values: string[] }) => (
-                                                    <View key={opt.name} style={{ marginBottom: 8 }}>
-                                                        <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginBottom: 5 }}>{opt.name}</Text>
-                                                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                                            <View style={{ flexDirection: 'row', gap: 6 }}>
-                                                                {opt.values.map((val: string) => {
-                                                                    const curOpts = editForm.preferredProductOptions ?? {};
-                                                                    const isChosen = curOpts[title]?.[opt.name] === val;
-                                                                    return (
-                                                                        <Pressable key={val}
-                                                                            onPress={() => setEditForm((f: any) => {
-                                                                                const opts = { ...(f.preferredProductOptions ?? {}) };
-                                                                                opts[title] = { ...(opts[title] ?? {}), [opt.name]: val };
-                                                                                return { ...f, preferredProductOptions: opts };
-                                                                            })}
-                                                                            style={[md.chip,
-                                                                            { paddingHorizontal: 10, paddingVertical: 4 },
-                                                                            isChosen && { backgroundColor: '#F0FDF4', borderColor: '#16A34A', borderWidth: 2 },
-                                                                            ]}>
-                                                                            <Text style={{ fontSize: 11, color: isChosen ? '#15803D' : Colors.text, fontWeight: isChosen ? '700' : '400' }}>{val}</Text>
-                                                                        </Pressable>
-                                                                    );
-                                                                })}
-                                                            </View>
-                                                        </ScrollView>
-                                                    </View>
-                                                ))}
+                                                {prod?.options?.map((opt: { name: string; values: string[] }) => {
+                                                    const selected = (formProduct.options ?? []).find((o: any) => o.name === opt.name)?.value;
+                                                    return (
+                                                        <View key={opt.name} style={{ marginBottom: 8 }}>
+                                                            <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginBottom: 5 }}>{opt.name}</Text>
+                                                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                                                    {opt.values.map((val: string) => {
+                                                                        const isChosen = selected === val;
+                                                                        return (
+                                                                            <Pressable key={val}
+                                                                                onPress={() => setEditForm((f: any) => {
+                                                                                    const prods = [...(f.products ?? [])];
+                                                                                    const target = { ...prods[prodIdx] };
+                                                                                    const opts = [...(target.options ?? [])];
+                                                                                    const existIdx = opts.findIndex((o: any) => o.name === opt.name);
+                                                                                    if (existIdx >= 0) {
+                                                                                        opts[existIdx] = { name: opt.name, value: val };
+                                                                                    } else {
+                                                                                        opts.push({ name: opt.name, value: val });
+                                                                                    }
+                                                                                    target.options = opts;
+                                                                                    prods[prodIdx] = target;
+                                                                                    return { ...f, products: prods };
+                                                                                })}
+                                                                                style={[md.chip,
+                                                                                { paddingHorizontal: 10, paddingVertical: 4 },
+                                                                                isChosen && { backgroundColor: '#F0FDF4', borderColor: '#16A34A', borderWidth: 2 },
+                                                                                ]}>
+                                                                                <Text style={{ fontSize: 11, color: isChosen ? '#15803D' : Colors.text, fontWeight: isChosen ? '700' : '400' }}>{val}</Text>
+                                                                            </Pressable>
+                                                                        );
+                                                                    })}
+                                                                </View>
+                                                            </ScrollView>
+                                                        </View>
+                                                    );
+                                                })}
                                                 {(!prod?.options || prod.options.length === 0) && (
                                                     <Text style={{ fontSize: 11, color: '#9CA3AF' }}>No options available</Text>
                                                 )}
@@ -1038,58 +1379,7 @@ export default function LeadManagementScreen() {
                                 <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 6 }}>Changes appear here after the first edit.</Text>
                             </View>
                         ) : (
-                            <View style={{ gap: 16 }}>
-                                {/* ── Current Lead Episode ── */}
-                                <View style={{
-                                    borderRadius: 12, overflow: 'hidden',
-                                    borderWidth: 1.5, borderColor: EPISODE_PALETTE[0].color,
-                                }}>
-                                    <View style={{ backgroundColor: EPISODE_PALETTE[0].bg, paddingHorizontal: 14, paddingVertical: 10 }}>
-                                        <Text style={{ fontSize: 13, fontWeight: '700', color: EPISODE_PALETTE[0].color }}>
-                                            📌 This Lead
-                                        </Text>
-                                    </View>
-                                    <View style={{ padding: 12 }}>
-                                        {historyData.currentLead.history.length === 0 ? (
-                                            <Text style={{ fontSize: 13, color: Colors.textSecondary, paddingLeft: 4 }}>No edits yet on this lead.</Text>
-                                        ) : (
-                                            <View style={{ gap: 8 }}>
-                                                {historyData.currentLead.history.map((item: any) => (
-                                                    <HistoryRow key={item.id} item={item} accentColor={EPISODE_PALETTE[0].color} />
-                                                ))}
-                                            </View>
-                                        )}
-                                    </View>
-                                </View>
-
-                                {/* ── Prior Lead Episodes ── */}
-                                {historyData.priorLeads.map((priorLead: any, idx: number) => {
-                                    const palette = EPISODE_PALETTE[(idx + 1) % EPISODE_PALETTE.length];
-                                    return (
-                                        <View key={priorLead.id} style={{
-                                            borderRadius: 12, overflow: 'hidden',
-                                            borderWidth: 1.5, borderColor: palette.color,
-                                        }}>
-                                            <View style={{ backgroundColor: palette.bg, paddingHorizontal: 14, paddingVertical: 10 }}>
-                                                <Text style={{ fontSize: 13, fontWeight: '700', color: palette.color }}>
-                                                    🔄 Previous Visit {historyData.priorLeads.length - idx} — {new Date(priorLead.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                </Text>
-                                            </View>
-                                            <View style={{ padding: 12 }}>
-                                                {priorLead.history.length === 0 ? (
-                                                    <Text style={{ fontSize: 13, color: Colors.textSecondary, paddingLeft: 4 }}>No edits recorded for this visit.</Text>
-                                                ) : (
-                                                    <View style={{ gap: 8 }}>
-                                                        {priorLead.history.map((item: any) => (
-                                                            <HistoryRow key={item.id} item={item} accentColor={palette.color} />
-                                                        ))}
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </View>
-                                    );
-                                })}
-                            </View>
+                            <HistoryAccordionView historyData={historyData} />
                         )}
 
                         <View style={{ marginTop: 20, alignItems: 'flex-end' }}>
@@ -1198,6 +1488,6 @@ const styles = StyleSheet.create({
     modal: {
         backgroundColor: 'white',
         padding: 24, margin: 20, borderRadius: 14,
-        maxWidth: 640, alignSelf: 'center', width: '100%', maxHeight: '90%',
+        maxWidth: 860, alignSelf: 'center', width: '100%', maxHeight: '90%',
     },
 });
