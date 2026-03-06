@@ -516,6 +516,8 @@ export default function LeadManagementScreen() {
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
     const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
+    const [exportFrom, setExportFrom] = useState('');
+    const [exportTo, setExportTo] = useState('');
 
     const [editTarget, setEditTarget] = useState<any>(null);
     const [editForm, setEditForm] = useState<any>({});
@@ -700,32 +702,52 @@ export default function LeadManagementScreen() {
     const hasActiveColFilters = Object.values(colFilters).some(v => !!v);
 
     // ── CSV Export ────────────────────────────────────────────────
-    const downloadCSV = () => {
-        const rows = colFilteredLeads.map(l => ({
-            Name: (c(l).name ?? '').replace(/,/g, ' '),
-            Phone: c(l).phone ?? '',
-            City: c(l).city ?? '',
-            Source: l.source ?? '',
-            Status: l.status ?? '',
-            'Assigned To': l.assignedToName ?? '',
-            'Call 1': l.call1 ?? '',
-            'Call 2': l.call2 ?? '',
-            'Call 3': l.call3 ?? '',
-            'Next Action': l.nextActionDate ? new Date(l.nextActionDate).toLocaleDateString('en-IN') : '',
-            'Exp. Center': l.preferredExperienceCenter ?? '',
-            'Appt Booked': l.appointmentBooked ? 'Yes' : 'No',
-            Products: (l.leadProducts ?? []).map((lp: any) => lp.productTitle).join(', '),
-            Date: l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
-        }));
-        const headers = Object.keys(rows[0] ?? {});
-        const csv = [headers.join(','), ...rows.map(r => headers.map(h => `"${(r as any)[h] ?? ''}"`).join(','))].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `my_leads_${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+    const downloadCSV = async () => {
+        try {
+            // Fetch leads from backend with date range (up to 10000)
+            const params: any = { limit: 10000 };
+            if (exportFrom) params.fromDate = exportFrom;
+            if (exportTo) params.toDate = exportTo;
+            const res = await api.get('/leads', { params });
+            const exportLeads = res.data.leads ?? res.data ?? [];
+            const cust = (l: any) => l?.customer ?? {};
+
+            if (exportLeads.length === 0) {
+                alert('No leads found for the selected date range.');
+                return;
+            }
+
+            const rows = exportLeads.map((l: any) => ({
+                Name: (cust(l).name ?? '').replace(/,/g, ' '),
+                Phone: cust(l).phone ?? '',
+                City: cust(l).city ?? '',
+                Source: l.source ?? '',
+                Status: l.status ?? '',
+                'Assigned To': l.assignedToName ?? '',
+                'Call 1': l.call1 ?? '',
+                'Call 2': l.call2 ?? '',
+                'Call 3': l.call3 ?? '',
+                'Next Action': l.nextActionDate ? new Date(l.nextActionDate).toLocaleDateString('en-IN') : '',
+                'Exp. Center': l.preferredExperienceCenter ?? '',
+                'Appt Booked': l.appointmentBooked ? 'Yes' : 'No',
+                Products: (l.leadProducts ?? []).map((lp: any) => lp.productTitle).join(', '),
+                Date: l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
+            }));
+            const headers = Object.keys(rows[0] ?? {});
+            const csv = [headers.join(','), ...rows.map((r: any) => headers.map(h => `"${(r as any)[h] ?? ''}"`).join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const fromLabel = exportFrom || 'all';
+            const toLabel = exportTo || 'now';
+            a.download = `leads_${fromLabel}_to_${toLabel}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Export failed:', err);
+            alert('Failed to export leads. Check console for details.');
+        }
     };
 
     return (
@@ -751,10 +773,51 @@ export default function LeadManagementScreen() {
                     <Button mode="outlined" icon="refresh" onPress={() => loadLeads(search)} compact>
                         Refresh
                     </Button>
-                    <Button mode="outlined" icon="download" onPress={downloadCSV} compact style={{ marginLeft: 8 }}>
-                        Export CSV
-                    </Button>
                 </View>
+            </View>
+
+            {/* ── Export Row with Date Range ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 2, marginBottom: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280' }}>Export:</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 11, color: '#9CA3AF' }}>From</Text>
+                    <input
+                        type="date"
+                        value={exportFrom}
+                        onChange={(e: any) => setExportFrom(e.target.value)}
+                        style={{
+                            border: '1px solid #E5E7EB', borderRadius: 6,
+                            paddingLeft: 10, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
+                            fontSize: 12, color: '#374151', backgroundColor: '#fff',
+                            width: 140, outline: 'none', cursor: 'pointer',
+                        }}
+                    />
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 11, color: '#9CA3AF' }}>To</Text>
+                    <input
+                        type="date"
+                        value={exportTo}
+                        onChange={(e: any) => setExportTo(e.target.value)}
+                        style={{
+                            border: '1px solid #E5E7EB', borderRadius: 6,
+                            paddingLeft: 10, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
+                            fontSize: 12, color: '#374151', backgroundColor: '#fff',
+                            width: 140, outline: 'none', cursor: 'pointer',
+                        }}
+                    />
+                </View>
+                <Button mode="contained" icon="download" onPress={downloadCSV} compact
+                    buttonColor="#4F46E5" textColor="#fff"
+                    style={{ borderRadius: 8 }}>
+                    Export CSV
+                </Button>
+                {(exportFrom || exportTo) && (
+                    <Button mode="text" compact onPress={() => { setExportFrom(''); setExportTo(''); }}
+                        textColor="#9CA3AF" style={{ marginLeft: -4 }}>
+                        Clear dates
+                    </Button>
+                )}
             </View>
 
             {/* ── Filter Tabs ── */}
@@ -1051,18 +1114,113 @@ export default function LeadManagementScreen() {
                                         </Text>
                                     </View>
                                 ))}
-                                {editTarget?.specificDetails && Object.keys(editTarget.specificDetails).length > 0 && (
-                                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-                                        <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', width: 90 }}>Extra Details</Text>
-                                        <View style={{ flex: 1, gap: 4 }}>
-                                            {Object.entries(editTarget.specificDetails).map(([k, v]) => (
-                                                <Text key={k} style={{ fontSize: 12, color: '#374151' }}>
-                                                    <Text style={{ fontWeight: '600' }}>{k}:</Text> {String(v)}
-                                                </Text>
-                                            ))}
+                                {editTarget?.specificDetails && Object.keys(editTarget.specificDetails).length > 0 && (() => {
+                                    const sd = editTarget.specificDetails;
+                                    const meta = sd.popin_meta && typeof sd.popin_meta === 'object' && !Array.isArray(sd.popin_meta) ? sd.popin_meta : {};
+                                    // Known Popin keys to display in sections
+                                    const knownKeys = new Set([
+                                        'popin_event', 'popin_user_id', 'popin_timestamp', 'popin_url',
+                                        'popin_customer_name', 'popin_customer_email', 'popin_customer_phone', 'popin_customer_country_code',
+                                        'popin_call_duration', 'popin_product',
+                                        'popin_agent_name', 'popin_agent_email',
+                                        'popin_scheduled_date', 'popin_scheduled_time', 'popin_scheduled_date_local', 'popin_scheduled_time_local',
+                                        'popin_remark', 'popin_rating', 'popin_rating_comments',
+                                        'popin_guest_type', 'popin_guest_id', 'popin_guest_agent_name', 'popin_guest_agent_email',
+                                        'popin_meta', 'popin_extra',
+                                    ]);
+                                    const otherEntries = Object.entries(sd).filter(([k]) => !knownKeys.has(k));
+                                    const isPopin = !!sd.popin_event;
+                                    const InfoRow = ({ label, value }: { label: string; value: any }) => (
+                                        value ? (
+                                            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
+                                                <Text style={{ fontSize: 11, color: '#6B7280', width: 80 }}>{label}</Text>
+                                                <Text style={{ fontSize: 12, color: '#1F2937', flex: 1, fontWeight: '500' }}>{String(value)}</Text>
+                                            </View>
+                                        ) : null
+                                    );
+
+                                    if (!isPopin) {
+                                        return (
+                                            <View style={{ marginTop: 8 }}>
+                                                <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', marginBottom: 4 }}>Extra Details</Text>
+                                                {Object.entries(sd).map(([k, v]) => (
+                                                    <InfoRow key={k} label={k} value={v} />
+                                                ))}
+                                            </View>
+                                        );
+                                    }
+
+                                    return (
+                                        <View style={{ marginTop: 10, gap: 10 }}>
+                                            {/* Event Info */}
+                                            <View style={{ backgroundColor: '#EEF2FF', borderRadius: 8, padding: 10 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#4338CA', marginBottom: 6 }}>📡 Popin Event</Text>
+                                                <InfoRow label="Event" value={sd.popin_event?.replace('popin_', '').replace(/_/g, ' ')} />
+                                                <InfoRow label="Timestamp" value={sd.popin_timestamp ? new Date(sd.popin_timestamp).toLocaleString('en-IN') : null} />
+                                                <InfoRow label="User ID" value={sd.popin_user_id} />
+                                            </View>
+
+                                            {/* UTM / Marketing */}
+                                            {(meta.utm_source || meta.utm_medium || meta.utm_campaign || meta.utm_content) && (
+                                                <View style={{ backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534', marginBottom: 6 }}>📊 Marketing / UTM</Text>
+                                                    <InfoRow label="Source" value={meta.utm_source} />
+                                                    <InfoRow label="Medium" value={meta.utm_medium} />
+                                                    <InfoRow label="Campaign" value={meta.utm_campaign} />
+                                                    <InfoRow label="Content" value={meta.utm_content} />
+                                                    <InfoRow label="Term" value={meta.utm_term} />
+                                                </View>
+                                            )}
+
+                                            {/* Page URL */}
+                                            {sd.popin_url && (
+                                                <View style={{ backgroundColor: '#FFF7ED', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#9A3412', marginBottom: 6 }}>🌐 Page</Text>
+                                                    <Text style={{ fontSize: 12, color: '#4338CA', textDecorationLine: 'underline' }}>{sd.popin_url}</Text>
+                                                </View>
+                                            )}
+
+                                            {/* Agent Info */}
+                                            {(sd.popin_agent_name || sd.popin_agent_email) && (
+                                                <View style={{ backgroundColor: '#FDF4FF', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#7E22CE', marginBottom: 6 }}>👤 Popin Agent</Text>
+                                                    <InfoRow label="Name" value={sd.popin_agent_name} />
+                                                    <InfoRow label="Email" value={sd.popin_agent_email} />
+                                                </View>
+                                            )}
+
+                                            {/* Call Info */}
+                                            {(sd.popin_call_duration || sd.popin_rating) && (
+                                                <View style={{ backgroundColor: '#FEF2F2', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#991B1B', marginBottom: 6 }}>📞 Call Details</Text>
+                                                    <InfoRow label="Duration" value={sd.popin_call_duration ? `${sd.popin_call_duration}s` : null} />
+                                                    <InfoRow label="Rating" value={sd.popin_rating ? `⭐ ${sd.popin_rating}` : null} />
+                                                    <InfoRow label="Comments" value={sd.popin_rating_comments} />
+                                                    <InfoRow label="Remark" value={sd.popin_remark} />
+                                                </View>
+                                            )}
+
+                                            {/* Schedule Info */}
+                                            {(sd.popin_scheduled_date_local || sd.popin_scheduled_date) && (
+                                                <View style={{ backgroundColor: '#ECFEFF', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#155E75', marginBottom: 6 }}>📅 Scheduled</Text>
+                                                    <InfoRow label="Date" value={sd.popin_scheduled_date_local || sd.popin_scheduled_date} />
+                                                    <InfoRow label="Time" value={sd.popin_scheduled_time_local || sd.popin_scheduled_time} />
+                                                </View>
+                                            )}
+
+                                            {/* Other fields */}
+                                            {otherEntries.length > 0 && (
+                                                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 10 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>📋 Other</Text>
+                                                    {otherEntries.map(([k, v]) => (
+                                                        <InfoRow key={k} label={k} value={v} />
+                                                    ))}
+                                                </View>
+                                            )}
                                         </View>
-                                    </View>
-                                )}
+                                    );
+                                })()}
                             </View>
                         </View>
 
