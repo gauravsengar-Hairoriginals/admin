@@ -58,6 +58,7 @@ const EXPERIENCE_CENTERS = [
 // ── Table columns ──────────────────────────────────────────────────────────────
 const COLS = [
     { key: 'actions', label: '', width: 120 },
+    { key: 'aging', label: 'Aging', width: 80 },
     { key: 'status', label: 'Status', width: 130 },
     { key: 'name', label: 'Name', width: 150 },
     { key: 'phone', label: 'Phone', width: 135 },
@@ -69,6 +70,7 @@ const COLS = [
     { key: 'expCenter', label: 'Exp. Center', width: 155 },
     { key: 'appointmentBooked', label: 'Appt', width: 110 },
     { key: 'preferredProducts', label: 'Products', width: 180 },
+    { key: 'consultationType', label: 'Consultation', width: 155 },
 ];
 const TOTAL_WIDTH = COLS.reduce((s, c) => s + c.width, 0);
 
@@ -515,6 +517,7 @@ export default function LeadManagementScreen() {
 
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
+    const [agingSort, setAgingSort] = useState<'none' | 'asc' | 'desc'>('none');
     const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
     const [exportFrom, setExportFrom] = useState('');
     const [exportTo, setExportTo] = useState('');
@@ -584,8 +587,10 @@ export default function LeadManagementScreen() {
             nextActionDate: lead.nextActionDate ?? '',
             appointmentBooked: lead.appointmentBooked ?? false,
             bookedDate: lead.bookedDate ?? '',
+            bookedTimeSlot: lead.bookedTimeSlot ?? '',
             remarks: lead.remarks ?? '',
             preferredExperienceCenter: lead.preferredExperienceCenter ?? '',
+            consultationType: lead.consultationType ?? '',
             products: formProducts,
         });
     };
@@ -599,6 +604,20 @@ export default function LeadManagementScreen() {
             alert(`Next Action Date is required when call status is "${activeCall}". Please set it before saving.`);
             return;
         }
+
+        // Validate: converted statuses require consultationType and bookedDate
+        const CONVERTED_STATUSES = ['converted:Marked to EC', 'converted:Marked to HT'];
+        if (CONVERTED_STATUSES.includes(editForm.status)) {
+            if (!editForm.consultationType) {
+                alert('Consultation Type is required when marking as Converted. Please select one.');
+                return;
+            }
+            if (!editForm.bookedDate) {
+                alert('Appointment Date is required when marking as Converted. Please set it.');
+                return;
+            }
+        }
+
         setEditLoading(true);
         try {
             // Enforce sequential using the *already-saved* lead as baseline:
@@ -693,11 +712,21 @@ export default function LeadManagementScreen() {
                     if (!prodText.includes(term)) return false;
                     break;
                 }
+                case 'consultationType': if (!(lead.consultationType ?? '').toLowerCase().includes(term)) return false; break;
                 default: break;
             }
         }
         return true;
     });
+
+    // Apply aging sort
+    if (agingSort !== 'none') {
+        colFilteredLeads.sort((a: any, b: any) => {
+            const aAge = a.createdAt ? Date.now() - new Date(a.createdAt).getTime() : 0;
+            const bAge = b.createdAt ? Date.now() - new Date(b.createdAt).getTime() : 0;
+            return agingSort === 'asc' ? aAge - bAge : bAge - aAge;
+        });
+    }
 
     const hasActiveColFilters = Object.values(colFilters).some(v => !!v);
 
@@ -731,6 +760,8 @@ export default function LeadManagementScreen() {
                 'Exp. Center': l.preferredExperienceCenter ?? '',
                 'Appt Booked': l.appointmentBooked ? 'Yes' : 'No',
                 Products: (l.leadProducts ?? []).map((lp: any) => lp.productTitle).join(', '),
+                'Consultation Type': l.consultationType ?? '',
+                Aging: l.createdAt ? Math.floor((Date.now() - new Date(l.createdAt).getTime()) / (1000 * 60 * 60 * 24)) + ' days' : '',
                 Date: l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
             }));
             const headers = Object.keys(rows[0] ?? {});
@@ -875,9 +906,15 @@ export default function LeadManagementScreen() {
                             {/* Header row */}
                             <View style={tbl.headerRow}>
                                 {COLS.map(col => (
-                                    <View key={col.key} style={[tbl.headerCell, { width: col.width }]}>
+                                    <Pressable key={col.key}
+                                        disabled={col.key !== 'aging'}
+                                        onPress={col.key === 'aging' ? () => setAgingSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none') : undefined}
+                                        style={[tbl.headerCell, { width: col.width, flexDirection: 'row', alignItems: 'center', gap: 2 }, col.key === 'aging' && { cursor: 'pointer' as any }]}>
                                         <Text style={tbl.headerText}>{col.label}</Text>
-                                    </View>
+                                        {col.key === 'aging' && agingSort !== 'none' && (
+                                            <Text style={{ fontSize: 10, color: '#4F46E5' }}>{agingSort === 'asc' ? ' ▲' : ' ▼'}</Text>
+                                        )}
+                                    </Pressable>
                                 ))}
                             </View>
 
@@ -885,7 +922,7 @@ export default function LeadManagementScreen() {
                             <View style={[tbl.headerRow, { backgroundColor: '#FAFBFF', borderBottomColor: '#E5E7EB', paddingVertical: 4 }]}>
                                 {COLS.map(col => {
                                     // Skip non-filterable columns
-                                    if (['actions', 'callProgress', 'nextActionDate', 'appointmentBooked'].includes(col.key)) {
+                                    if (['actions', 'callProgress', 'nextActionDate', 'appointmentBooked', 'aging'].includes(col.key)) {
                                         return <View key={col.key} style={{ width: col.width, paddingHorizontal: 4 }} />;
                                     }
                                     return (
@@ -970,6 +1007,22 @@ export default function LeadManagementScreen() {
                                                         style={{ margin: 0 }} iconColor="#6B7280" />
                                                     <IconButton icon="phone" size={18} onPress={() => setCallLead(lead)}
                                                         style={{ margin: 0 }} iconColor="#16A34A" />
+                                                </View>
+
+                                                {/* Aging */}
+                                                <View style={[tbl.cell, { width: 80, justifyContent: 'center' }]}>
+                                                    {(() => {
+                                                        const days = lead.createdAt
+                                                            ? Math.floor((Date.now() - new Date(lead.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+                                                            : 0;
+                                                        const bg = days <= 3 ? '#DCFCE7' : days <= 7 ? '#FEF3C7' : '#FEE2E2';
+                                                        const color = days <= 3 ? '#166534' : days <= 7 ? '#92400E' : '#991B1B';
+                                                        return (
+                                                            <View style={{ backgroundColor: bg, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                                                <Text style={{ fontSize: 12, fontWeight: '700', color, textAlign: 'center' }}>{days}d</Text>
+                                                            </View>
+                                                        );
+                                                    })()}
                                                 </View>
 
                                                 {/* Status */}
@@ -1068,6 +1121,17 @@ export default function LeadManagementScreen() {
                                                         ))
                                                         : <Text style={tbl.cellText}>—</Text>
                                                     }
+                                                </View>
+
+                                                {/* Consultation Type */}
+                                                <View style={[tbl.cell, { width: 155 }]}>
+                                                    {lead.consultationType ? (
+                                                        <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                                            <Text style={{ fontSize: 11, color: '#92400E', fontWeight: '600' }} numberOfLines={2}>{lead.consultationType}</Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Text style={tbl.cellText}>—</Text>
+                                                    )}
                                                 </View>
                                             </View>
                                         )}
@@ -1300,7 +1364,7 @@ export default function LeadManagementScreen() {
                         <View style={md.section}>
                             <Text style={md.sectionTitle}>📞 Call Log</Text>
                             <CallSelector
-                                stepNum={1} label="Call 1" value={editForm.call1} locked={!!editTarget?.call2}
+                                stepNum={1} label="Call 1" value={editForm.call1} locked={!!editTarget?.call1}
                                 onChange={v => {
                                     setEditForm((f: any) => {
                                         const upd: any = { ...f, call1: v };
@@ -1313,7 +1377,7 @@ export default function LeadManagementScreen() {
                                 }}
                             />
                             <CallSelector
-                                stepNum={2} label="Call 2" value={editForm.call2} locked={!editTarget?.call1 || !!editTarget?.call3}
+                                stepNum={2} label="Call 2" value={editForm.call2} locked={!!editTarget?.call2 || !editTarget?.call1}
                                 onChange={v => {
                                     setEditForm((f: any) => {
                                         const upd: any = { ...f, call2: v };
@@ -1326,7 +1390,7 @@ export default function LeadManagementScreen() {
                                 }}
                             />
                             <CallSelector
-                                stepNum={3} label="Call 3" value={editForm.call3} locked={!editTarget?.call2}
+                                stepNum={3} label="Call 3" value={editForm.call3} locked={!!editTarget?.call3 || !editTarget?.call2}
                                 onChange={v => {
                                     setEditForm((f: any) => {
                                         const upd: any = { ...f, call3: v };
@@ -1411,6 +1475,20 @@ export default function LeadManagementScreen() {
                             <DatePickerInput label="Booked Date" value={editForm.bookedDate}
                                 onChange={v => setEditForm((f: any) => ({ ...f, bookedDate: v }))} />
 
+                            <Text style={[md.label, { marginTop: 6 }]}>Time Slot</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                                    {['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'].map(slot => (
+                                        <Pressable key={slot}
+                                            onPress={() => setEditForm((f: any) => ({ ...f, bookedTimeSlot: editForm.bookedTimeSlot === slot ? '' : slot }))}
+                                            style={[md.chip, { paddingHorizontal: 10, paddingVertical: 6 },
+                                            editForm.bookedTimeSlot === slot && { backgroundColor: '#EDE9FE', borderColor: '#7C3AED', borderWidth: 2 }]}>
+                                            <Text style={{ color: editForm.bookedTimeSlot === slot ? '#7C3AED' : Colors.text, fontSize: 11, fontWeight: editForm.bookedTimeSlot === slot ? '700' : '400' }}>{slot}</Text>
+                                        </Pressable>
+                                    ))}
+                                </View>
+                            </ScrollView>
+
                             <Text style={[md.label, { marginTop: 6 }]}>Preferred Experience Center</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -1419,6 +1497,19 @@ export default function LeadManagementScreen() {
                                             onPress={() => setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec }))}
                                             style={[md.chip, editForm.preferredExperienceCenter === ec && { backgroundColor: '#EEF2FF', borderColor: '#4338CA', borderWidth: 2 }]}>
                                             <Text style={{ color: editForm.preferredExperienceCenter === ec ? '#4338CA' : Colors.text, fontSize: 12 }}>{ec}</Text>
+                                        </Pressable>
+                                    ))}
+                                </View>
+                            </ScrollView>
+
+                            <Text style={[md.label, { marginTop: 6 }]}>Consultation Type</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                    {['Wig Consultation', 'DIY Consultation', 'Topper Consultation', 'Man Patch Consultation', 'PE Consultation'].map(ct => (
+                                        <Pressable key={ct}
+                                            onPress={() => setEditForm((f: any) => ({ ...f, consultationType: editForm.consultationType === ct ? '' : ct }))}
+                                            style={[md.chip, editForm.consultationType === ct && { backgroundColor: '#FEF3C7', borderColor: '#D97706', borderWidth: 2 }]}>
+                                            <Text style={{ color: editForm.consultationType === ct ? '#D97706' : Colors.text, fontSize: 12 }}>{ct}</Text>
                                         </Pressable>
                                     ))}
                                 </View>
@@ -1606,13 +1697,15 @@ export default function LeadManagementScreen() {
             </Portal >
 
             {/* ── Click-to-Call Confirmation Modal ── */}
-            {callLead && (
-                <CallConfirmModal
-                    lead={callLead}
-                    agentPhone={user?.phone ?? ''}
-                    onClose={() => setCallLead(null)}
-                />
-            )}
+            {
+                callLead && (
+                    <CallConfirmModal
+                        lead={callLead}
+                        agentPhone={user?.phone ?? ''}
+                        onClose={() => setCallLead(null)}
+                    />
+                )
+            }
         </AdminPageLayout >
     );
 }
