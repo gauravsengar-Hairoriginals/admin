@@ -20,6 +20,7 @@ export default function AdminLayout() {
         { name: 'Dashboard', route: '/(admin)/dashboard', icon: 'view-dashboard' },
         { name: 'Stylists', route: '/(admin)/stylists', icon: 'account-group' },
         { name: 'Salons', route: '/(admin)/salons', icon: 'store' },
+        { name: 'Exp Centers', route: '/(admin)/experience-centers', icon: 'store-marker' },
         { name: 'Referrals', route: '/(admin)/referrals', icon: 'cash-multiple' },
         { name: 'Commissions', route: '/(admin)/commissions', icon: 'percent' },
         { name: 'Field Force', route: '/(admin)/field-force', icon: 'account-hard-hat' },
@@ -30,7 +31,10 @@ export default function AdminLayout() {
     ];
 
     const navItems = isLeadCaller
-        ? [{ name: 'Lead Management', route: '/(admin)/lead-management', icon: 'clipboard-list' }]
+        ? [
+            { name: 'My Dashboard', route: '/(admin)/caller-dashboard', icon: 'view-dashboard-outline' },
+            { name: 'Lead Management', route: '/(admin)/lead-management', icon: 'clipboard-list' },
+        ]
         : allNavItems;
 
     return (

@@ -14,40 +14,57 @@ import {
     Dialog,
     Chip,
     Banner,
+    SegmentedButtons,
 } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
 import AdminPageLayout from '../../components/AdminPageLayout';
 
-const EMPTY_FORM = { name: '', email: '', phone: '', password: '' };
+const CALLER_CATEGORIES = [
+    { label: 'EC Caller', value: 'EC_CALLER' },
+    { label: 'HT Caller', value: 'HT_CALLER' },
+    { label: 'Website Caller', value: 'WEBSITE_CALLER' },
+    { label: 'Popin Caller', value: 'POPIN_CALLER' },
+    { label: 'International', value: 'INTERNATIONAL_CALLER' },
+];
+
+const CALLER_REGIONS = [
+    { label: 'Delhi-NCR', value: 'DELHI_NCR' },
+    { label: 'Hyderabad', value: 'HYDERABAD' },
+    { label: 'Mumbai', value: 'MUMBAI' },
+    { label: 'Rest of India', value: 'REST_OF_INDIA' },
+];
+
+const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
+    EC_CALLER: { bg: '#DBEAFE', text: '#1D4ED8' },
+    HT_CALLER: { bg: '#D1FAE5', text: '#065F46' },
+    WEBSITE_CALLER: { bg: '#EDE9FE', text: '#5B21B6' },
+    POPIN_CALLER: { bg: '#FEF3C7', text: '#92400E' },
+    INTERNATIONAL_CALLER: { bg: '#F3F4F6', text: '#374151' },
+};
+
+const EMPTY_FORM = { name: '', email: '', phone: '', password: '', callerCategory: '', callerRegion: '' };
 
 export default function LeadCallersScreen() {
-    // ─── List state ──────────────────────────────────────────────────────
     const [callers, setCallers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // ─── Add / Edit modal ────────────────────────────────────────────────
     const [modalVisible, setModalVisible] = useState(false);
     const [editingCaller, setEditingCaller] = useState<any>(null);
     const [form, setForm] = useState({ ...EMPTY_FORM });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
 
-    // After-create banner (shows generated password)
     const [newCredentials, setNewCredentials] = useState<{ email: string; password: string } | null>(null);
 
-    // ─── Reset password dialog ────────────────────────────────────────────
     const [resetTarget, setResetTarget] = useState<any>(null);
     const [resetPwd, setResetPwd] = useState('');
     const [resetLoading, setResetLoading] = useState(false);
 
-    // ─── Toggle status dialog ─────────────────────────────────────────────
     const [statusTarget, setStatusTarget] = useState<any>(null);
     const [statusLoading, setStatusLoading] = useState(false);
 
-    // ─── Fetch ────────────────────────────────────────────────────────────
     const fetchCallers = useCallback(async (search = searchQuery) => {
         try {
             const res = await api.get('/admin/lead-callers', {
@@ -58,16 +75,28 @@ export default function LeadCallersScreen() {
             console.error(err);
         } finally {
             setLoading(false);
-            setRefreshing(false);
         }
     }, [searchQuery]);
 
     useEffect(() => { fetchCallers(); }, []);
 
-    // ─── Add modal ────────────────────────────────────────────────────────
     const openAddModal = () => {
         setEditingCaller(null);
         setForm({ ...EMPTY_FORM });
+        setFormError('');
+        setModalVisible(true);
+    };
+
+    const openEditModal = (caller: any) => {
+        setEditingCaller(caller);
+        setForm({
+            name: caller.name || '',
+            email: caller.email || '',
+            phone: caller.phone || '',
+            password: '',
+            callerCategory: caller.callerCategory || '',
+            callerRegion: caller.callerRegion || '',
+        });
         setFormError('');
         setModalVisible(true);
     };
@@ -80,25 +109,36 @@ export default function LeadCallersScreen() {
         setFormLoading(true);
         setFormError('');
         try {
-            const res = await api.post('/admin/lead-callers', {
-                name: form.name.trim(),
-                email: form.email.trim().toLowerCase(),
-                phone: form.phone.trim(),
-                password: form.password.trim() || undefined, // backend will auto-generate if blank
-            });
-            setCallers(prev => [res.data, ...prev]);
-            setModalVisible(false);
-            // The backend returns the plain-text password in passwordHash field temporarily
-            setNewCredentials({ email: res.data.email, password: res.data.passwordHash });
+            if (editingCaller) {
+                // Update category/region
+                await api.post(`/admin/lead-callers/${editingCaller.id}/update`, {
+                    callerCategory: form.callerCategory || undefined,
+                    callerRegion: form.callerRegion || undefined,
+                });
+                fetchCallers();
+                setModalVisible(false);
+            } else {
+                // Create new
+                const res = await api.post('/admin/lead-callers', {
+                    name: form.name.trim(),
+                    email: form.email.trim().toLowerCase(),
+                    phone: form.phone.trim(),
+                    password: form.password.trim() || undefined,
+                    callerCategory: form.callerCategory || undefined,
+                    callerRegion: form.callerRegion || undefined,
+                });
+                setCallers(prev => [res.data, ...prev]);
+                setModalVisible(false);
+                setNewCredentials({ email: res.data.email, password: res.data.passwordHash });
+            }
         } catch (err: any) {
-            const msg = err?.response?.data?.message || 'Failed to create lead caller.';
+            const msg = err?.response?.data?.message || 'Failed to save lead caller.';
             setFormError(Array.isArray(msg) ? msg.join(', ') : msg);
         } finally {
             setFormLoading(false);
         }
     };
 
-    // ─── Toggle active ────────────────────────────────────────────────────
     const handleToggleStatus = async () => {
         if (!statusTarget) return;
         setStatusLoading(true);
@@ -115,7 +155,6 @@ export default function LeadCallersScreen() {
         }
     };
 
-    // ─── Reset password ───────────────────────────────────────────────────
     const handleResetPassword = async () => {
         if (!resetTarget || !resetPwd.trim()) return;
         setResetLoading(true);
@@ -135,7 +174,6 @@ export default function LeadCallersScreen() {
 
     return (
         <AdminPageLayout>
-            {/* Credentials banner */}
             {newCredentials && (
                 <Banner
                     visible
@@ -148,14 +186,13 @@ export default function LeadCallersScreen() {
                 </Banner>
             )}
 
-            {/* ── Header ── */}
             <View style={styles.header}>
                 <View>
                     <Text variant="headlineMedium" style={{ fontWeight: 'bold', color: Colors.text }}>
                         Lead Callers
                     </Text>
                     <Text variant="bodyMedium" style={{ color: Colors.textSecondary }}>
-                        Manage lead caller accounts
+                        Manage lead caller accounts and shifts
                     </Text>
                 </View>
                 <View style={styles.headerActions}>
@@ -178,137 +215,206 @@ export default function LeadCallersScreen() {
                 </View>
             </View>
 
-            {/* ── Table ── */}
             <Card mode="elevated" elevation={1} style={styles.tableCard}>
                 {loading ? (
                     <ActivityIndicator size="large" style={{ margin: 50 }} />
                 ) : (
-                    <DataTable>
-                        <DataTable.Header style={styles.tableHeader}>
-                            <DataTable.Title style={{ flex: 2 }} textStyle={styles.tableTitle}>Name</DataTable.Title>
-                            <DataTable.Title style={{ flex: 2 }} textStyle={styles.tableTitle}>Email</DataTable.Title>
-                            <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>Phone</DataTable.Title>
-                            <DataTable.Title textStyle={styles.tableTitle}>Status</DataTable.Title>
-                            <DataTable.Title style={{ flex: 1.2 }} textStyle={styles.tableTitle}>Joined</DataTable.Title>
-                            <DataTable.Title textStyle={styles.tableTitle}>Actions</DataTable.Title>
-                        </DataTable.Header>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <DataTable style={{ minWidth: 900 }}>
+                            <DataTable.Header style={styles.tableHeader}>
+                                <DataTable.Title style={{ flex: 2 }} textStyle={styles.tableTitle}>Name</DataTable.Title>
+                                <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>Category</DataTable.Title>
+                                <DataTable.Title style={{ flex: 1.2 }} textStyle={styles.tableTitle}>Region</DataTable.Title>
+                                <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>Phone</DataTable.Title>
+                                <DataTable.Title textStyle={styles.tableTitle}>Shift</DataTable.Title>
+                                <DataTable.Title textStyle={styles.tableTitle}>Status</DataTable.Title>
+                                <DataTable.Title textStyle={styles.tableTitle}>Actions</DataTable.Title>
+                            </DataTable.Header>
 
-                        {callers.length === 0 ? (
-                            <View style={{ padding: 32, alignItems: 'center' }}>
-                                <Text style={{ color: Colors.textSecondary }}>No lead callers found.</Text>
-                            </View>
-                        ) : (
-                            callers.map(caller => (
-                                <DataTable.Row key={caller.id} style={styles.tableRow}>
-                                    <DataTable.Cell style={{ flex: 2 }}>
-                                        <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>{caller.name}</Text>
-                                    </DataTable.Cell>
-                                    <DataTable.Cell style={{ flex: 2 }}>
-                                        <Text variant="bodySmall">{caller.email}</Text>
-                                    </DataTable.Cell>
-                                    <DataTable.Cell style={{ flex: 1.5 }}>
-                                        <Text variant="bodySmall">{caller.phone}</Text>
-                                    </DataTable.Cell>
-                                    <DataTable.Cell>
-                                        <Chip
-                                            mode="flat"
-                                            style={{ backgroundColor: caller.isActive ? '#E8F5E9' : '#FFEBEE' }}
-                                            textStyle={{ color: caller.isActive ? '#2E7D32' : '#C62828', fontSize: 12 }}
-                                        >
-                                            {caller.isActive ? 'Active' : 'Inactive'}
-                                        </Chip>
-                                    </DataTable.Cell>
-                                    <DataTable.Cell style={{ flex: 1.2 }}>
-                                        <Text variant="bodySmall">
-                                            {new Date(caller.createdAt).toLocaleDateString('en-IN')}
-                                        </Text>
-                                    </DataTable.Cell>
-                                    <DataTable.Cell>
-                                        <View style={{ flexDirection: 'row' }}>
-                                            <IconButton
-                                                icon={caller.isActive ? 'account-off' : 'account-check'}
-                                                size={18}
-                                                iconColor={caller.isActive ? Colors.error : Colors.success}
-                                                onPress={() => setStatusTarget(caller)}
-                                                style={{ margin: 0 }}
-                                            />
-                                            <IconButton
-                                                icon="lock-reset"
-                                                size={18}
-                                                iconColor={Colors.textSecondary}
-                                                onPress={() => { setResetTarget(caller); setResetPwd(''); }}
-                                                style={{ margin: 0 }}
-                                            />
-                                        </View>
-                                    </DataTable.Cell>
-                                </DataTable.Row>
-                            ))
-                        )}
-                    </DataTable>
+                            {callers.length === 0 ? (
+                                <View style={{ padding: 32, alignItems: 'center' }}>
+                                    <Text style={{ color: Colors.textSecondary }}>No lead callers found.</Text>
+                                </View>
+                            ) : (
+                                callers.map(caller => {
+                                    const catColor = CATEGORY_COLORS[caller.callerCategory] ?? { bg: '#F3F4F6', text: '#374151' };
+                                    const catLabel = CALLER_CATEGORIES.find(c => c.value === caller.callerCategory)?.label ?? '—';
+                                    const regionLabel = CALLER_REGIONS.find(r => r.value === caller.callerRegion)?.label ?? '—';
+                                    return (
+                                        <DataTable.Row key={caller.id} style={styles.tableRow}>
+                                            <DataTable.Cell style={{ flex: 2 }}>
+                                                <View>
+                                                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>{caller.name}</Text>
+                                                    <Text variant="bodySmall" style={{ color: Colors.textSecondary }}>{caller.email}</Text>
+                                                </View>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell style={{ flex: 1.5 }}>
+                                                <Chip mode="flat" style={{ backgroundColor: catColor.bg }} textStyle={{ color: catColor.text, fontSize: 11 }}>
+                                                    {catLabel}
+                                                </Chip>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell style={{ flex: 1.2 }}>
+                                                <Text variant="bodySmall">{regionLabel}</Text>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell style={{ flex: 1.5 }}>
+                                                <Text variant="bodySmall">{caller.phone}</Text>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell>
+                                                <Chip
+                                                    mode="flat"
+                                                    style={{ backgroundColor: caller.isOnShift ? '#D1FAE5' : '#F3F4F6' }}
+                                                    textStyle={{ color: caller.isOnShift ? '#065F46' : '#9CA3AF', fontSize: 11 }}
+                                                >
+                                                    {caller.isOnShift ? '🟢 On' : '⚫ Off'}
+                                                </Chip>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell>
+                                                <Chip
+                                                    mode="flat"
+                                                    style={{ backgroundColor: caller.isActive ? '#E8F5E9' : '#FFEBEE' }}
+                                                    textStyle={{ color: caller.isActive ? '#2E7D32' : '#C62828', fontSize: 12 }}
+                                                >
+                                                    {caller.isActive ? 'Active' : 'Inactive'}
+                                                </Chip>
+                                            </DataTable.Cell>
+                                            <DataTable.Cell>
+                                                <View style={{ flexDirection: 'row' }}>
+                                                    <IconButton
+                                                        icon="pencil"
+                                                        size={18}
+                                                        iconColor={Colors.textSecondary}
+                                                        onPress={() => openEditModal(caller)}
+                                                        style={{ margin: 0 }}
+                                                    />
+                                                    <IconButton
+                                                        icon={caller.isActive ? 'account-off' : 'account-check'}
+                                                        size={18}
+                                                        iconColor={caller.isActive ? Colors.error : Colors.success}
+                                                        onPress={() => setStatusTarget(caller)}
+                                                        style={{ margin: 0 }}
+                                                    />
+                                                    <IconButton
+                                                        icon="lock-reset"
+                                                        size={18}
+                                                        iconColor={Colors.textSecondary}
+                                                        onPress={() => { setResetTarget(caller); setResetPwd(''); }}
+                                                        style={{ margin: 0 }}
+                                                    />
+                                                </View>
+                                            </DataTable.Cell>
+                                        </DataTable.Row>
+                                    );
+                                })
+                            )}
+                        </DataTable>
+                    </ScrollView>
                 )}
             </Card>
 
-            {/* ── Add Modal ── */}
+            {/* Add / Edit Modal */}
             <Portal>
                 <Modal
                     visible={modalVisible}
                     onDismiss={() => setModalVisible(false)}
                     contentContainerStyle={styles.modal}
                 >
-                    <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 16 }}>
-                        Add Lead Caller
-                    </Text>
-                    <TextInput
-                        label="Full Name *"
-                        value={form.name}
-                        onChangeText={v => setForm(f => ({ ...f, name: v }))}
-                        mode="outlined"
-                        style={{ marginBottom: 12 }}
-                    />
-                    <TextInput
-                        label="Email *"
-                        value={form.email}
-                        onChangeText={v => setForm(f => ({ ...f, email: v }))}
-                        mode="outlined"
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        style={{ marginBottom: 12 }}
-                    />
-                    <TextInput
-                        label="Phone *"
-                        value={form.phone}
-                        onChangeText={v => setForm(f => ({ ...f, phone: v }))}
-                        mode="outlined"
-                        keyboardType="phone-pad"
-                        style={{ marginBottom: 12 }}
-                    />
-                    <TextInput
-                        label="Password (leave blank to auto-generate)"
-                        value={form.password}
-                        onChangeText={v => setForm(f => ({ ...f, password: v }))}
-                        mode="outlined"
-                        secureTextEntry
-                        style={{ marginBottom: 12 }}
-                    />
-                    {formError ? (
-                        <Text style={{ color: Colors.error, marginBottom: 8 }}>{formError}</Text>
-                    ) : null}
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
-                        <Button onPress={() => setModalVisible(false)}>Cancel</Button>
-                        <Button mode="contained" onPress={handleSave} loading={formLoading}>
-                            Create
-                        </Button>
-                    </View>
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                        <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 16 }}>
+                            {editingCaller ? 'Edit Caller' : 'Add Lead Caller'}
+                        </Text>
+
+                        {!editingCaller && (
+                            <>
+                                <TextInput
+                                    label="Full Name *"
+                                    value={form.name}
+                                    onChangeText={v => setForm(f => ({ ...f, name: v }))}
+                                    mode="outlined"
+                                    style={{ marginBottom: 12 }}
+                                />
+                                <TextInput
+                                    label="Email *"
+                                    value={form.email}
+                                    onChangeText={v => setForm(f => ({ ...f, email: v }))}
+                                    mode="outlined"
+                                    keyboardType="email-address"
+                                    autoCapitalize="none"
+                                    style={{ marginBottom: 12 }}
+                                />
+                                <TextInput
+                                    label="Phone *"
+                                    value={form.phone}
+                                    onChangeText={v => setForm(f => ({ ...f, phone: v }))}
+                                    mode="outlined"
+                                    keyboardType="phone-pad"
+                                    style={{ marginBottom: 12 }}
+                                />
+                                <TextInput
+                                    label="Password (leave blank to auto-generate)"
+                                    value={form.password}
+                                    onChangeText={v => setForm(f => ({ ...f, password: v }))}
+                                    mode="outlined"
+                                    secureTextEntry
+                                    style={{ marginBottom: 16 }}
+                                />
+                            </>
+                        )}
+
+                        <Text style={styles.fieldLabel}>Caller Category</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                            {CALLER_CATEGORIES.map(cat => {
+                                const color = CATEGORY_COLORS[cat.value] ?? { bg: '#F3F4F6', text: '#374151' };
+                                const selected = form.callerCategory === cat.value;
+                                return (
+                                    <Chip
+                                        key={cat.value}
+                                        mode="flat"
+                                        selected={selected}
+                                        onPress={() => setForm(f => ({ ...f, callerCategory: cat.value }))}
+                                        style={{ backgroundColor: selected ? color.bg : '#F3F4F6', borderWidth: selected ? 2 : 0, borderColor: color.text }}
+                                        textStyle={{ color: selected ? color.text : '#6B7280', fontWeight: selected ? '700' : '400' }}
+                                    >
+                                        {cat.label}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+
+                        <Text style={styles.fieldLabel}>Region</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                            {CALLER_REGIONS.map(reg => {
+                                const selected = form.callerRegion === reg.value;
+                                return (
+                                    <Chip
+                                        key={reg.value}
+                                        mode="flat"
+                                        selected={selected}
+                                        onPress={() => setForm(f => ({ ...f, callerRegion: reg.value }))}
+                                        style={{ backgroundColor: selected ? '#EEF2FF' : '#F3F4F6', borderWidth: selected ? 2 : 0, borderColor: '#4338CA' }}
+                                        textStyle={{ color: selected ? '#4338CA' : '#6B7280', fontWeight: selected ? '700' : '400' }}
+                                    >
+                                        {reg.label}
+                                    </Chip>
+                                );
+                            })}
+                        </View>
+
+                        {formError ? (
+                            <Text style={{ color: Colors.error, marginBottom: 8 }}>{formError}</Text>
+                        ) : null}
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+                            <Button onPress={() => setModalVisible(false)}>Cancel</Button>
+                            <Button mode="contained" onPress={handleSave} loading={formLoading}>
+                                {editingCaller ? 'Update' : 'Create'}
+                            </Button>
+                        </View>
+                    </ScrollView>
                 </Modal>
             </Portal>
 
-            {/* ── Toggle Status Dialog ── */}
+            {/* Toggle Status Dialog */}
             <Portal>
-                <Dialog
-                    visible={!!statusTarget}
-                    onDismiss={() => setStatusTarget(null)}
-                    style={{ backgroundColor: 'white' }}
-                >
+                <Dialog visible={!!statusTarget} onDismiss={() => setStatusTarget(null)} style={{ backgroundColor: 'white' }}>
                     <Dialog.Title>
                         {statusTarget?.isActive ? 'Deactivate' : 'Activate'} Caller
                     </Dialog.Title>
@@ -331,13 +437,9 @@ export default function LeadCallersScreen() {
                 </Dialog>
             </Portal>
 
-            {/* ── Reset Password Dialog ── */}
+            {/* Reset Password Dialog */}
             <Portal>
-                <Dialog
-                    visible={!!resetTarget}
-                    onDismiss={() => setResetTarget(null)}
-                    style={{ backgroundColor: 'white' }}
-                >
+                <Dialog visible={!!resetTarget} onDismiss={() => setResetTarget(null)} style={{ backgroundColor: 'white' }}>
                     <Dialog.Title>Reset Password — {resetTarget?.name}</Dialog.Title>
                     <Dialog.Content>
                         <TextInput
@@ -351,12 +453,7 @@ export default function LeadCallersScreen() {
                     </Dialog.Content>
                     <Dialog.Actions>
                         <Button onPress={() => setResetTarget(null)}>Cancel</Button>
-                        <Button
-                            mode="contained"
-                            onPress={handleResetPassword}
-                            loading={resetLoading}
-                            disabled={!resetPwd.trim()}
-                        >
+                        <Button mode="contained" onPress={handleResetPassword} loading={resetLoading} disabled={!resetPwd.trim()}>
                             Reset
                         </Button>
                     </Dialog.Actions>
@@ -411,8 +508,15 @@ const styles = StyleSheet.create({
         padding: 24,
         margin: 24,
         borderRadius: 12,
-        maxWidth: 500,
+        maxWidth: 520,
         alignSelf: 'center',
         width: '100%',
+        maxHeight: '90%',
+    },
+    fieldLabel: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#4B5563',
+        marginBottom: 8,
     },
 });

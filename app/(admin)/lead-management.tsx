@@ -46,15 +46,6 @@ const LEAD_STATUS_OPTIONS = [
 const leadStatusStyle = (val?: string) =>
     LEAD_STATUS_OPTIONS.find(o => o.value === val) ?? { color: '#9E9E9E', bg: '#F5F5F5', label: val ?? '—' };
 
-const EXPERIENCE_CENTERS = [
-    'Mumbai - Andheri', 'Mumbai - Bandra',
-    'Delhi - Saket', 'Delhi - Connaught Place',
-    'Bangalore - Indiranagar', 'Bangalore - Koramangala',
-    'Hyderabad - Banjara Hills', 'Chennai - Anna Nagar', 'Pune - Koregaon Park',
-];
-
-
-
 // ── Table columns ──────────────────────────────────────────────────────────────
 const COLS = [
     { key: 'actions', label: '', width: 120 },
@@ -63,6 +54,7 @@ const COLS = [
     { key: 'name', label: 'Name', width: 150 },
     { key: 'phone', label: 'Phone', width: 135 },
     { key: 'city', label: 'City', width: 100 },
+    { key: 'leadCategory', label: 'Category', width: 110 },
     { key: 'source', label: 'Source', width: 120 },
     { key: 'assignedTo', label: 'Assigned To', width: 140 },
     { key: 'callProgress', label: 'Call Progress', width: 210 },
@@ -74,9 +66,17 @@ const COLS = [
 ];
 const TOTAL_WIDTH = COLS.reduce((s, c) => s + c.width, 0);
 
+const LEAD_CATEGORY_STYLES: Record<string, { bg: string; color: string }> = {
+    EC: { bg: '#DBEAFE', color: '#1D4ED8' },
+    HT: { bg: '#D1FAE5', color: '#065F46' },
+    WEBSITE: { bg: '#EDE9FE', color: '#5B21B6' },
+    POPIN: { bg: '#FEF3C7', color: '#92400E' },
+};
+const leadCategoryStyle = (cat?: string) => cat ? (LEAD_CATEGORY_STYLES[cat] ?? { bg: '#F3F4F6', color: '#6B7280' }) : { bg: '#F3F4F6', color: '#6B7280' };
+
 // ── qkonnect Click-to-Call API ────────────────────────────────────────────────
-//const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
-const QKONNECT_API_KEY = '6340a658-13d3-11f1-bec8-6045bdaaffcb';
+const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
+//const QKONNECT_API_KEY = '6340a658-13d3-11f1-bec8-6045bdaaffcb';
 
 function CallConfirmModal({
     lead, agentPhone, onClose,
@@ -105,11 +105,12 @@ function CallConfirmModal({
             }
 
             // Step 2: fire the qkonnect click-to-call API
+            const to10 = (phone: string) => phone.replace(/\D/g, '').slice(-10);
             const url = `https://qkonnect.io/api/ctc-makecall-global.php` +
                 `?api_key=${QKONNECT_API_KEY}` +
                 `&call_priority=2` +
-                `&agent=${encodeURIComponent(agentPhone)}` +
-                `&caller=${encodeURIComponent(customerPhone)}` +
+                `&agent=${encodeURIComponent(to10(agentPhone))}` +
+                `&caller=${encodeURIComponent(to10(customerPhone))}` +
                 `&custom_param_1=NA&custom_param_2=NA&custom_param_3=NA`;
             await fetch(url);
             setDone(true);
@@ -514,6 +515,13 @@ export default function LeadManagementScreen() {
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'fresh' | 'reminder' | 'revisit' | 'converted' | 'dropped'>('all');
     const [products, setProducts] = useState<{ id: string; title: string; options: { name: string; values: string[] }[] }[]>([]);
+    const [experienceCenters, setExperienceCenters] = useState<any[]>([]);
+
+    // ── Pagination & API counts ──────────────────────────────────────────
+    const LIMIT = 20;
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
 
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
@@ -526,6 +534,8 @@ export default function LeadManagementScreen() {
     const [editForm, setEditForm] = useState<any>({});
     const [editLoading, setEditLoading] = useState(false);
     const [productSearch, setProductSearch] = useState('');
+    const [callLogs, setCallLogs] = useState<any[]>([]);
+    const [callLogsLoading, setCallLogsLoading] = useState(false);
 
     // ── History ───────────────────────────────────────────────────────────
     const [historyLead, setHistoryLead] = useState<any>(null);
@@ -545,16 +555,41 @@ export default function LeadManagementScreen() {
         finally { setHistoryLoading(false); }
     };
 
-    const loadLeads = useCallback(async (q = '') => {
+    const loadLeads = useCallback(async (p = 1, q = search) => {
         setLoading(true);
         try {
-            const res = await api.get('/leads', { params: { search: q || undefined, limit: 100 } });
+            const res = await api.get('/leads', {
+                params: {
+                    search: q || undefined,
+                    page: p,
+                    limit: LIMIT,
+                    tab: filter,
+                    name: colFilters.name || undefined,
+                    phone: colFilters.phone || undefined,
+                    city: colFilters.city || undefined,
+                    source: colFilters.source || undefined,
+                    campaign: colFilters.campaign || undefined,
+                    status: colFilters.status || undefined,
+                    assignedTo: colFilters.assignedTo || undefined,
+                }
+            });
             setLeads(res.data.leads ?? res.data ?? []);
+            setTotal(res.data.total ?? 0);
+            setPage(p);
+
+            const countsRes = await api.get('/leads/counts');
+            setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, []);
+    }, [search, filter, colFilters]);
 
-    useEffect(() => { loadLeads(); }, []);
+    // Apply filters instantly with a small debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            loadLeads(1);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [colFilters, filter, search]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -562,10 +597,22 @@ export default function LeadManagementScreen() {
                 const list = res.data.products ?? res.data ?? [];
                 setProducts(list.map((p: any) => ({ id: p.id, title: p.title, options: p.options ?? [] })));
             }).catch(() => { });
+
+        api.get('/admin/experience-centers')
+            .then(res => {
+                setExperienceCenters(res.data.filter((ec: any) => ec.isActive));
+            }).catch(() => { });
     }, []);
 
     const openEdit = (lead: any) => {
         setEditTarget(lead);
+        // Fetch call logs for this lead
+        setCallLogs([]);
+        setCallLogsLoading(true);
+        api.get('/call-logs/lead', { params: { leadId: lead.id } })
+            .then(res => setCallLogs(res.data ?? []))
+            .catch(() => {})
+            .finally(() => setCallLogsLoading(false));
         // Convert leadProducts (two-layer) into local form shape
         const formProducts = (lead.leadProducts ?? []).map((lp: any) => ({
             productId: lp.productId ?? undefined,
@@ -659,65 +706,17 @@ export default function LeadManagementScreen() {
     const c = (lead: any) => lead?.customer ?? {};
 
     // ── Filter logic ─────────────────────────────────────────────────────────
-    const today = new Date();
-    today.setHours(23, 59, 59, 999); // end of today
-    const CLOSED_STATUSES = ['dropped', 'converted:Marked to EC', 'converted:Marked to HT', 'converted:Marked to VC'];
-    const isActive = (l: any) => !CLOSED_STATUSES.includes(l.status);
-
-    const activeLeads = leads.filter(isActive);
-    const freshLeads = activeLeads.filter(l => !l.call1);
-    const reminderLeads = activeLeads.filter(l => {
-        if (!l.nextActionDate) return false;
-        const nad = new Date(l.nextActionDate);
-        const updated = new Date(l.updatedAt);
-        return nad <= today && updated < nad;
-    });
-    const revisitLeads = activeLeads.filter(l => l.isRevisit === true)
-        .sort((a, b) => (a?.customer?.phone ?? '').localeCompare(b?.customer?.phone ?? ''));
-    const convertedLeads = leads.filter(l => (l.status ?? '').startsWith('converted:'));
-    const droppedLeads = leads.filter(l => l.status === 'dropped');
-
-    const filteredLeads =
-        filter === 'fresh' ? freshLeads :
-            filter === 'reminder' ? reminderLeads :
-                filter === 'revisit' ? revisitLeads :
-                    filter === 'converted' ? convertedLeads :
-                        filter === 'dropped' ? droppedLeads :
-                            activeLeads;  // 'all' → only active leads
-
     const FILTERS = [
-        { key: 'all', label: 'All Leads', count: activeLeads.length, color: '#6366F1', bg: '#EEF2FF' },
-        { key: 'fresh', label: 'Fresh', count: freshLeads.length, color: '#0369A1', bg: '#E0F2FE' },
-        { key: 'reminder', label: '🔔 Reminder', count: reminderLeads.length, color: '#B45309', bg: '#FEF3C7' },
-        { key: 'revisit', label: '🔄 Revisit', count: revisitLeads.length, color: '#7C3AED', bg: '#F5F3FF' },
-        { key: 'converted', label: '✅ Converted', count: convertedLeads.length, color: '#16A34A', bg: '#F0FDF4' },
-        { key: 'dropped', label: '🚫 Dropped', count: droppedLeads.length, color: '#9CA3AF', bg: '#F3F4F6' },
+        { key: 'all', label: 'All Leads', count: tabCounts.all || 0, color: '#6366F1', bg: '#EEF2FF' },
+        { key: 'fresh', label: 'Fresh', count: tabCounts.fresh || 0, color: '#0369A1', bg: '#E0F2FE' },
+        { key: 'reminder', label: '🔔 Reminder', count: tabCounts.reminder || 0, color: '#B45309', bg: '#FEF3C7' },
+        { key: 'revisit', label: '🔄 Revisit', count: tabCounts.revisit || 0, color: '#7C3AED', bg: '#F5F3FF' },
+        { key: 'converted', label: '✅ Converted', count: tabCounts.converted || 0, color: '#16A34A', bg: '#F0FDF4' },
+        { key: 'dropped', label: '🚫 Dropped', count: tabCounts.dropped || 0, color: '#9CA3AF', bg: '#F3F4F6' },
     ] as const;
 
-    // ── Apply per-column text filters ──────────────────────────────────────
-    const colFilteredLeads = filteredLeads.filter(lead => {
-        for (const [key, val] of Object.entries(colFilters)) {
-            if (!val) continue;
-            const term = val.toLowerCase();
-            switch (key) {
-                case 'name': if (!(c(lead).name ?? '').toLowerCase().includes(term)) return false; break;
-                case 'phone': if (!(c(lead).phone ?? '').toLowerCase().includes(term)) return false; break;
-                case 'city': if (!(c(lead).city ?? '').toLowerCase().includes(term)) return false; break;
-                case 'source': if (!(lead.source ?? '').toLowerCase().includes(term)) return false; break;
-                case 'assignedTo': if (!(lead.assignedToName ?? '').toLowerCase().includes(term)) return false; break;
-                case 'status': if (!(lead.status ?? '').toLowerCase().includes(term)) return false; break;
-                case 'expCenter': if (!(lead.preferredExperienceCenter ?? '').toLowerCase().includes(term)) return false; break;
-                case 'preferredProducts': {
-                    const prodText = (lead.leadProducts ?? []).map((lp: any) => lp.productTitle).join(' ').toLowerCase();
-                    if (!prodText.includes(term)) return false;
-                    break;
-                }
-                case 'consultationType': if (!(lead.consultationType ?? '').toLowerCase().includes(term)) return false; break;
-                default: break;
-            }
-        }
-        return true;
-    });
+    // Table display leads. (All filtering moved to backend)
+    const colFilteredLeads = leads;
 
     // Apply aging sort
     if (agingSort !== 'none') {
@@ -797,11 +796,11 @@ export default function LeadManagementScreen() {
                         placeholder="Search name or phone…"
                         value={search}
                         onChangeText={setSearch}
-                        onSubmitEditing={() => loadLeads(search)}
+                        onSubmitEditing={() => loadLeads(1, search)}
                         style={styles.searchBar}
                         inputStyle={{ minHeight: 0 }}
                     />
-                    <Button mode="outlined" icon="refresh" onPress={() => loadLeads(search)} compact>
+                    <Button mode="outlined" icon="refresh" onPress={() => loadLeads(1, search)} compact>
                         Refresh
                     </Button>
                 </View>
@@ -1047,6 +1046,17 @@ export default function LeadManagementScreen() {
                                                     <Text style={tbl.cellText}>{c(lead).city || '—'}</Text>
                                                 </View>
 
+                                                {/* Lead Category */}
+                                                <View style={[tbl.cell, { width: 110 }]}>
+                                                    {lead.leadCategory ? (
+                                                        <View style={[tbl.badge, { backgroundColor: leadCategoryStyle(lead.leadCategory).bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 }]}>
+                                                            <Text style={[tbl.badgeText, { color: leadCategoryStyle(lead.leadCategory).color, fontWeight: '700' }]} numberOfLines={1}>{lead.leadCategory}</Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Text style={tbl.cellText}>—</Text>
+                                                    )}
+                                                </View>
+
                                                 {/* Source */}
                                                 <View style={[tbl.cell, { width: 120 }]}>
                                                     {lead.source ? (
@@ -1138,15 +1148,39 @@ export default function LeadManagementScreen() {
                                     </React.Fragment>
                                 );
                             })}
-
                         </View>
                     </ScrollView>
-                )
-                }
-            </Card >
+                )}
+
+                {/* Pagination */}
+                {total > LIMIT && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
+                        <Button
+                            mode="text"
+                            disabled={page === 1}
+                            onPress={() => loadLeads(page - 1)}
+                            icon="chevron-left"
+                        >
+                            Prev
+                        </Button>
+                        <Text style={{ alignSelf: 'center', marginHorizontal: 16, color: '#6B7280', fontSize: 13 }}>
+                            Page {page} of {Math.ceil(total / LIMIT)}
+                        </Text>
+                        <Button
+                            mode="text"
+                            disabled={page * LIMIT >= total}
+                            onPress={() => loadLeads(page + 1)}
+                            contentStyle={{ flexDirection: 'row-reverse' }}
+                            icon="chevron-right"
+                        >
+                            Next
+                        </Button>
+                    </View>
+                )}
+            </Card>
 
             {/* ── Edit Modal ── */}
-            < Portal >
+            <Portal>
                 <Modal
                     visible={!!editTarget}
                     onDismiss={() => setEditTarget(null)}
@@ -1159,6 +1193,82 @@ export default function LeadManagementScreen() {
                         {/* Cancel at the top */}
                         <View style={{ alignSelf: 'flex-end', marginBottom: 8 }}>
                             <Button onPress={() => setEditTarget(null)} icon="close">Close</Button>
+                        </View>
+
+                        {/* ── Call Log History ── */}
+                        <View style={[md.section, { backgroundColor: '#F0FDF4', borderRadius: 12, borderWidth: 1, borderColor: '#86EFAC', padding: 14, marginBottom: 14 }]}>
+                            <Text style={[md.sectionTitle, { marginBottom: 10 }]}>📞 Call History</Text>
+                            {callLogsLoading ? (
+                                <ActivityIndicator size="small" />
+                            ) : callLogs.length === 0 ? (
+                                <Text style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>No call logs recorded yet.</Text>
+                            ) : (
+                                <View style={{ gap: 10 }}>
+                                    {callLogs.map((log: any, idx: number) => {
+                                        const statusColors: Record<string, { bg: string; color: string }> = {
+                                            COMPLETED: { bg: '#D1FAE5', color: '#065F46' },
+                                            MISSED: { bg: '#FFEBEE', color: '#B71C1C' },
+                                            PENDING: { bg: '#FEF3C7', color: '#92400E' },
+                                        };
+                                        const s = statusColors[log.status] ?? { bg: '#F3F4F6', color: '#6B7280' };
+                                        const formatTime = (t?: string) => t ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+                                        const formatDate = (t?: string) => t ? new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—';
+                                        const durationSec = log.totalCallDuration;
+                                        const durationStr = durationSec != null
+                                            ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+                                            : null;
+                                        return (
+                                            <View key={log.id ?? idx} style={{ backgroundColor: 'white', borderRadius: 10, borderWidth: 1, borderColor: '#D1FAE5', padding: 12 }}>
+                                                {/* Top row: status + date + duration */}
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                                    <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                        <View style={{ backgroundColor: s.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 }}>
+                                                            <Text style={{ fontSize: 11, fontWeight: '700', color: s.color }}>{log.status}</Text>
+                                                        </View>
+                                                        {log.callAction ? (
+                                                            <Text style={{ fontSize: 11, color: '#6B7280' }}>{log.callAction}</Text>
+                                                        ) : null}
+                                                    </View>
+                                                    <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+                                                        {formatDate(log.callStartTime ?? log.createdAt)}
+                                                    </Text>
+                                                </View>
+                                                {/* Info rows */}
+                                                <View style={{ gap: 4 }}>
+                                                    {[[
+                                                        { label: 'Agent', value: log.agent?.name ?? log.agentNumber ?? '—' },
+                                                        { label: 'Caller', value: log.callerNumber ?? '—' },
+                                                    ], [
+                                                        { label: 'Start', value: formatTime(log.callStartTime) },
+                                                        { label: 'End', value: formatTime(log.callEndTime) },
+                                                        { label: 'Duration', value: durationStr ?? '—' },
+                                                    ]].map((row, ri) => (
+                                                        <View key={ri} style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
+                                                            {row.map(({ label, value }) => (
+                                                                <View key={label} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+                                                                    <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600' }}>{label}:</Text>
+                                                                    <Text style={{ fontSize: 12, color: '#1F2937' }}>{value}</Text>
+                                                                </View>
+                                                            ))}
+                                                        </View>
+                                                    ))}
+                                                    {log.callRecordingUrl ? (
+                                                        <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', marginTop: 4 }}>
+                                                            <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600' }}>Recording:</Text>
+                                                            <Text
+                                                                style={{ fontSize: 12, color: '#2563EB', textDecorationLine: 'underline' }}
+                                                                onPress={() => { if (typeof window !== 'undefined') window.open(log.callRecordingUrl, '_blank'); }}
+                                                            >
+                                                                🎙️ Play Recording
+                                                            </Text>
+                                                        </View>
+                                                    ) : null}
+                                                </View>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            )}
                         </View>
 
                         {/* ── Campaign Info (read-only) ── */}
@@ -1194,14 +1304,24 @@ export default function LeadManagementScreen() {
                                     ]);
                                     const otherEntries = Object.entries(sd).filter(([k]) => !knownKeys.has(k));
                                     const isPopin = !!sd.popin_event;
-                                    const InfoRow = ({ label, value }: { label: string; value: any }) => (
-                                        value ? (
-                                            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
-                                                <Text style={{ fontSize: 11, color: '#6B7280', width: 80 }}>{label}</Text>
-                                                <Text style={{ fontSize: 12, color: '#1F2937', flex: 1, fontWeight: '500' }}>{String(value)}</Text>
+                                    const InfoRow = ({ label, value }: { label: string; value: any }) => {
+                                        if (value === null || value === undefined || value === '') return null;
+                                        const isObj = typeof value === 'object';
+                                        return (
+                                            <View style={{ flexDirection: isObj ? 'column' : 'row', gap: isObj ? 6 : 6, marginBottom: isObj ? 12 : 4, width: '100%' }}>
+                                                <Text style={{ fontSize: 11, color: '#6B7280', width: isObj ? '100%' : 80, fontWeight: '600' }}>{label}</Text>
+                                                {isObj ? (
+                                                    <View style={{ backgroundColor: '#F8FAFC', borderRadius: 6, borderWidth: 1, borderColor: '#E2E8F0', padding: 8, width: '100%' }}>
+                                                        <Text style={{ fontSize: 11, color: '#374151', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>
+                                                            {JSON.stringify(value, null, 2)}
+                                                        </Text>
+                                                    </View>
+                                                ) : (
+                                                    <Text style={{ fontSize: 12, color: '#1F2937', flex: 1, fontWeight: '500' }}>{String(value)}</Text>
+                                                )}
                                             </View>
-                                        ) : null
-                                    );
+                                        );
+                                    };
 
                                     if (!isPopin) {
                                         return (
@@ -1492,11 +1612,11 @@ export default function LeadManagementScreen() {
                             <Text style={[md.label, { marginTop: 6 }]}>Preferred Experience Center</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
-                                    {EXPERIENCE_CENTERS.map(ec => (
-                                        <Pressable key={ec}
-                                            onPress={() => setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec }))}
-                                            style={[md.chip, editForm.preferredExperienceCenter === ec && { backgroundColor: '#EEF2FF', borderColor: '#4338CA', borderWidth: 2 }]}>
-                                            <Text style={{ color: editForm.preferredExperienceCenter === ec ? '#4338CA' : Colors.text, fontSize: 12 }}>{ec}</Text>
+                                    {experienceCenters.map(ec => (
+                                        <Pressable key={ec.id}
+                                            onPress={() => setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec.name }))}
+                                            style={[md.chip, editForm.preferredExperienceCenter === ec.name && { backgroundColor: '#EEF2FF', borderColor: '#4338CA', borderWidth: 2 }]}>
+                                            <Text style={{ color: editForm.preferredExperienceCenter === ec.name ? '#4338CA' : Colors.text, fontSize: 12 }}>{ec.name}</Text>
                                         </Pressable>
                                     ))}
                                 </View>

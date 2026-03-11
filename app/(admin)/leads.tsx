@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Alert, TextInput as RNTextInput } from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, Alert, TextInput as RNTextInput, Platform } from 'react-native';
 import {
     Text,
     DataTable,
@@ -82,7 +82,18 @@ export default function LeadsScreen() {
     const fetchLeads = useCallback(async (p = 1, search = searchQuery) => {
         try {
             const res = await api.get('/leads', {
-                params: { page: p, limit: LIMIT, search: search || undefined },
+                params: {
+                    page: p,
+                    limit: LIMIT,
+                    search: search || undefined,
+                    name: colFilters.name || undefined,
+                    phone: colFilters.phone || undefined,
+                    city: colFilters.city || undefined,
+                    source: colFilters.source || undefined,
+                    campaign: colFilters.campaign || undefined,
+                    status: colFilters.status || undefined,
+                    assignedTo: colFilters.assignedTo || undefined,
+                },
             });
             setLeads(res.data.leads ?? []);
             setTotal(res.data.total ?? 0);
@@ -93,15 +104,21 @@ export default function LeadsScreen() {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [searchQuery]);
+    }, [searchQuery, colFilters]);
 
-    useEffect(() => { fetchLeads(); }, []);
+    // Apply filters instantly with a small debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchLeads(1);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [colFilters, searchQuery]);
 
     // Auto-refresh every 5 seconds
     useEffect(() => {
         const interval = setInterval(() => { fetchLeads(page); }, 5000);
         return () => clearInterval(interval);
-    }, [page, searchQuery]);
+    }, [page, fetchLeads]);
 
     const onRefresh = () => { setRefreshing(true); fetchLeads(1); };
 
@@ -250,25 +267,7 @@ export default function LeadsScreen() {
         return c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || '—';
     };
 
-    // ─── Apply per-column filters (client-side on loaded page) ─────────────
-    const filteredLeads = leads.filter(lead => {
-        for (const [key, val] of Object.entries(colFilters)) {
-            if (!val) continue;
-            const term = val.toLowerCase();
-            const c = lead.customer ?? {};
-            switch (key) {
-                case 'name': if (!(c.name ?? '').toLowerCase().includes(term)) return false; break;
-                case 'phone': if (!(c.phone ?? '').toLowerCase().includes(term)) return false; break;
-                case 'city': if (!(c.city ?? '').toLowerCase().includes(term)) return false; break;
-                case 'source': if (!(lead.source ?? '').toLowerCase().includes(term)) return false; break;
-                case 'campaign': if (!(lead.campaignId ?? '').toLowerCase().includes(term)) return false; break;
-                case 'status': if (!(lead.status ?? '').toLowerCase().includes(term)) return false; break;
-                case 'assignedTo': if (!(lead.assignedToName ?? '').toLowerCase().includes(term)) return false; break;
-                default: break;
-            }
-        }
-        return true;
-    });
+    // ─── (Global Filtering applied via backend instead of client-side) ───────
 
     const LEADS_FILTER_COLS = [
         { key: 'select', flex: 0.5, skip: true },
@@ -292,13 +291,13 @@ export default function LeadsScreen() {
         });
     };
     const toggleSelectAll = () => {
-        if (selectedIds.size === filteredLeads.length) {
+        if (selectedIds.size === leads.length) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredLeads.map(l => l.id)));
+            setSelectedIds(new Set(leads.map(l => l.id)));
         }
     };
-    const allSelected = filteredLeads.length > 0 && selectedIds.size === filteredLeads.length;
+    const allSelected = leads.length > 0 && selectedIds.size === leads.length;
 
     // ─── Bulk Assign handler ──────────────────────────────────────
     const handleBulkAssign = async () => {
@@ -384,7 +383,7 @@ export default function LeadsScreen() {
                         Leads
                     </Text>
                     <Text variant="bodyMedium" style={{ color: Colors.textSecondary }}>
-                        {total} lead{total !== 1 ? 's' : ''} captured{Object.values(colFilters).some(v => !!v) ? ` (showing ${filteredLeads.length})` : ''}
+                        {total} lead{total !== 1 ? 's' : ''} captured
                     </Text>
                 </View>
                 <View style={styles.headerActions}>
@@ -503,14 +502,14 @@ export default function LeadsScreen() {
                                 ))}
                             </View>
 
-                            {filteredLeads.length === 0 ? (
+                            {leads.length === 0 ? (
                                 <View style={{ padding: 32, alignItems: 'center' }}>
                                     <Text style={{ color: Colors.textSecondary }}>
                                         {Object.values(colFilters).some(v => !!v) ? '🔍 No leads match the column filters' : 'No leads found.'}
                                     </Text>
                                 </View>
                             ) : (
-                                filteredLeads.map(lead => (
+                                leads.map(lead => (
                                     <DataTable.Row key={lead.id} style={[styles.tableRow, selectedIds.has(lead.id) && { backgroundColor: '#E3F2FD' }]}>
                                         <DataTable.Cell style={{ flex: 0.5 }}>
                                             <Checkbox
@@ -797,14 +796,24 @@ export default function LeadsScreen() {
                             const isPopin = !!sd.popin_event;
                             if (!isPopin) return null;
 
-                            const InfoRow = ({ label, value }: { label: string; value: any }) => (
-                                value ? (
-                                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
-                                        <Text style={{ fontSize: 11, color: '#6B7280', width: 80 }}>{label}</Text>
-                                        <Text style={{ fontSize: 12, color: '#1F2937', fontWeight: '500' }}>{String(value)}</Text>
+                            const InfoRow = ({ label, value }: { label: string; value: any }) => {
+                                if (value === null || value === undefined || value === '') return null;
+                                const isObj = typeof value === 'object';
+                                return (
+                                    <View style={{ flexDirection: isObj ? 'column' : 'row', gap: isObj ? 6 : 6, marginBottom: isObj ? 12 : 4, width: '100%' }}>
+                                        <Text style={{ fontSize: 11, color: '#6B7280', width: isObj ? '100%' : 80, fontWeight: '600' }}>{label}</Text>
+                                        {isObj ? (
+                                            <View style={{ backgroundColor: '#F8FAFC', borderRadius: 6, borderWidth: 1, borderColor: '#E2E8F0', padding: 8, width: '100%' }}>
+                                                <Text style={{ fontSize: 11, color: '#374151', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>
+                                                    {JSON.stringify(value, null, 2)}
+                                                </Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={{ fontSize: 12, color: '#1F2937', flex: 1, fontWeight: '500' }}>{String(value)}</Text>
+                                        )}
                                     </View>
-                                ) : null
-                            );
+                                );
+                            };
 
                             return (
                                 <View style={{ gap: 8, marginBottom: 14, padding: 12, backgroundColor: '#F8FAFF', borderRadius: 12, borderWidth: 1, borderColor: '#C7D2FE' }}>
