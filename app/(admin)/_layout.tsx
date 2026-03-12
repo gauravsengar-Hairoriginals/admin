@@ -1,18 +1,16 @@
 import React from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet, Image, ScrollView, Pressable } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
-import { Appbar, Button, Menu, Divider, Avatar, Text } from 'react-native-paper';
+import { Menu, Divider, Avatar, Text } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../hooks/useAuth';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function AdminLayout() {
     const { signOut, user } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
-    const [visible, setVisible] = React.useState(false);
-
-    const openMenu = () => setVisible(true);
-    const closeMenu = () => setVisible(false);
+    const [menuVisible, setMenuVisible] = React.useState(false);
 
     const isLeadCaller = user?.role === 'LEAD_CALLER';
 
@@ -38,63 +36,99 @@ export default function AdminLayout() {
         : allNavItems;
 
     return (
-        <View style={styles.container}>
-            <Appbar.Header style={styles.header} elevated>
-                <Appbar.Content
-                    title={
-                        <Image
-                            source={require('../../assets/images/logo.png')}
-                            style={{ width: 120, height: 40 }}
-                            resizeMode="contain"
-                        />
-                    }
-                    onPress={() => router.push('/(admin)/dashboard')}
-                />
+        <View style={styles.root}>
+            {/* ── Left Sidebar ─────────────────────────────────────── */}
+            <View style={styles.sidebar}>
+                {/* Logo */}
+                <Pressable onPress={() => router.push('/(admin)/dashboard')} style={styles.logoArea}>
+                    <Image
+                        source={require('../../assets/images/logo.png')}
+                        style={{ width: 120, height: 38 }}
+                        resizeMode="contain"
+                    />
+                </Pressable>
 
-                <View style={styles.navLinks}>
+                <Divider style={{ backgroundColor: '#E5E7EB', marginBottom: 8 }} />
+
+                {/* Nav items */}
+                <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                     {navItems.map((item) => {
-                        const isActive = pathname.includes(item.route);
+                        const isActive = pathname.startsWith(item.route.replace('/(admin)', ''));
                         return (
-                            <Button
+                            <Pressable
                                 key={item.route}
-                                mode={isActive ? 'contained-tonal' : 'text'}
                                 onPress={() => router.push(item.route as any)}
-                                icon={item.icon}
-                                textColor={isActive ? Colors.primary : Colors.textSecondary}
-                                style={[styles.navButton, isActive && styles.activeNavButton]}
-                                labelStyle={{ fontWeight: isActive ? 'bold' : 'normal' }}
+                                style={({ pressed }) => [
+                                    styles.navItem,
+                                    isActive && styles.navItemActive,
+                                    pressed && !isActive && styles.navItemPressed,
+                                ]}
                             >
-                                {item.name}
-                            </Button>
+                                <MaterialCommunityIcons
+                                    name={item.icon as any}
+                                    size={20}
+                                    color={isActive ? Colors.primary : '#6B7280'}
+                                    style={{ marginRight: 10 }}
+                                />
+                                <Text
+                                    style={[
+                                        styles.navLabel,
+                                        isActive && styles.navLabelActive,
+                                    ]}
+                                    numberOfLines={1}
+                                >
+                                    {item.name}
+                                </Text>
+                                {isActive && <View style={styles.activeBar} />}
+                            </Pressable>
                         );
                     })}
-                </View>
+                </ScrollView>
 
+                <Divider style={{ backgroundColor: '#E5E7EB', marginTop: 8 }} />
+
+                {/* User profile + logout */}
                 <Menu
-                    visible={visible}
-                    onDismiss={closeMenu}
+                    visible={menuVisible}
+                    onDismiss={() => setMenuVisible(false)}
                     anchor={
-                        <Button onPress={openMenu} mode="text" contentStyle={{ flexDirection: 'row-reverse' }}>
-                            <View style={styles.userBadge}>
-                                <Avatar.Text size={32} label={user?.name?.substring(0, 2).toUpperCase() || 'AD'} style={{ backgroundColor: Colors.primary }} />
-                                <View style={styles.userInfo}>
-                                    <Text variant="labelLarge" style={{ color: Colors.text }}>{user?.name}</Text>
-                                    <Text variant="bodySmall" style={{ color: Colors.textSecondary }}>{user?.role}</Text>
-                                </View>
+                        <Pressable
+                            onPress={() => setMenuVisible(true)}
+                            style={({ pressed }) => [styles.userArea, pressed && { opacity: 0.8 }]}
+                        >
+                            <Avatar.Text
+                                size={36}
+                                label={user?.name?.substring(0, 2).toUpperCase() || 'AD'}
+                                style={{ backgroundColor: Colors.primary }}
+                            />
+                            <View style={{ flex: 1, marginLeft: 10, minWidth: 0 }}>
+                                <Text style={styles.userName} numberOfLines={1}>{user?.name}</Text>
+                                <Text style={styles.userRole} numberOfLines={1}>{user?.role?.replace(/_/g, ' ')}</Text>
                             </View>
-                        </Button>
+                            <MaterialCommunityIcons name="chevron-up" size={18} color="#9CA3AF" />
+                        </Pressable>
                     }
-                    contentStyle={{ marginTop: 40 }}
+                    contentStyle={{ backgroundColor: 'white', borderRadius: 8, marginBottom: 8, marginLeft: 8 }}
                 >
                     {user?.role === 'SUPER_ADMIN' && (
-                        <Menu.Item onPress={() => { closeMenu(); router.push('/(admin)/admin-management'); }} title="Manage Admins" leadingIcon="shield-account" />
+                        <Menu.Item
+                            onPress={() => { setMenuVisible(false); router.push('/(admin)/admin-management'); }}
+                            title="Manage Admins"
+                            leadingIcon="shield-account"
+                        />
                     )}
                     <Divider />
-                    <Menu.Item onPress={signOut} title="Logout" leadingIcon="logout" titleStyle={{ color: Colors.error }} />
+                    <Menu.Item
+                        onPress={signOut}
+                        title="Logout"
+                        leadingIcon="logout"
+                        titleStyle={{ color: Colors.error }}
+                    />
                 </Menu>
-            </Appbar.Header>
+            </View>
 
-            <View style={styles.content}>
+            {/* ── Main Content ─────────────────────────────────────── */}
+            <View style={styles.main}>
                 <Slot />
             </View>
         </View>
@@ -102,45 +136,90 @@ export default function AdminLayout() {
 }
 
 const styles = StyleSheet.create({
-    container: {
+    root: {
         flex: 1,
+        flexDirection: 'row',
         backgroundColor: Colors.background,
     },
-    header: {
-        backgroundColor: Colors.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
-        height: 64,
+
+    // ── Sidebar ─────────────────────────────────────────────────
+    sidebar: {
+        width: 220,
+        backgroundColor: '#FFFFFF',
+        borderRightWidth: 1,
+        borderRightColor: '#E5E7EB',
+        paddingBottom: 12,
+        flexShrink: 0,
+    },
+    logoArea: {
         paddingHorizontal: 16,
+        paddingVertical: 14,
+        alignItems: 'flex-start',
     },
-    title: {
-        fontWeight: 'bold',
-        color: Colors.primary,
-        fontSize: 20,
-    },
-    navLinks: {
+
+    navItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginRight: 20,
-        display: 'flex', // Visible on web/tablet
-    },
-    navButton: {
-        marginHorizontal: 4,
+        marginHorizontal: 10,
+        marginVertical: 2,
+        paddingVertical: 9,
+        paddingHorizontal: 12,
         borderRadius: 8,
+        position: 'relative',
+        overflow: 'hidden',
     },
-    activeNavButton: {
-        backgroundColor: Colors.active,
+    navItemActive: {
+        backgroundColor: '#EEF2FF',
     },
-    userBadge: {
+    navItemPressed: {
+        backgroundColor: '#F9FAFB',
+    },
+    navLabel: {
+        fontSize: 13.5,
+        color: '#6B7280',
+        fontWeight: '500',
+        flex: 1,
+    },
+    navLabelActive: {
+        color: Colors.primary,
+        fontWeight: '700',
+    },
+    activeBar: {
+        position: 'absolute',
+        right: 0,
+        top: 6,
+        bottom: 6,
+        width: 3,
+        borderRadius: 3,
+        backgroundColor: Colors.primary,
+    },
+
+    // ── User area ───────────────────────────────────────────────
+    userArea: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        marginHorizontal: 8,
+        borderRadius: 10,
+        backgroundColor: '#F9FAFB',
+        marginTop: 8,
     },
-    userInfo: {
-        alignItems: 'flex-end',
-        display: 'flex', // Can hide on small screens if needed
+    userName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#111827',
     },
-    content: {
+    userRole: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        textTransform: 'capitalize',
+        marginTop: 1,
+    },
+
+    // ── Main content ────────────────────────────────────────────
+    main: {
         flex: 1,
-    }
+        overflow: 'hidden',
+    },
 });
