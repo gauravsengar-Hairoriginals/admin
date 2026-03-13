@@ -274,6 +274,7 @@ export default function LeadsScreen() {
         { key: 'name', flex: 1.5 },
         { key: 'phone', flex: 1.2 },
         { key: 'city', flex: 1.5 },
+        { key: 'leadCategory', flex: 1, skip: true },
         { key: 'source', flex: 1 },
         { key: 'campaign', flex: 1 },
         { key: 'status', flex: 1 },
@@ -473,6 +474,7 @@ export default function LeadsScreen() {
                                 <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>Name</DataTable.Title>
                                 <DataTable.Title style={{ flex: 1.2 }} textStyle={styles.tableTitle}>Phone</DataTable.Title>
                                 <DataTable.Title style={{ flex: 1.5 }} textStyle={styles.tableTitle}>City</DataTable.Title>
+                                <DataTable.Title textStyle={styles.tableTitle}>Category</DataTable.Title>
                                 <DataTable.Title textStyle={styles.tableTitle}>Source</DataTable.Title>
                                 <DataTable.Title textStyle={styles.tableTitle}>Campaign</DataTable.Title>
                                 <DataTable.Title textStyle={styles.tableTitle}>Status</DataTable.Title>
@@ -525,6 +527,22 @@ export default function LeadsScreen() {
                                         </DataTable.Cell>
                                         <DataTable.Cell style={{ flex: 1.5 }}>
                                             <Text variant="bodySmall">{lead.customer?.city || '—'}</Text>
+                                        </DataTable.Cell>
+                                        <DataTable.Cell>
+                                            {lead.leadCategory ? (() => {
+                                                const CAT_STYLES: Record<string, { bg: string; color: string }> = {
+                                                    EC:      { bg: '#DBEAFE', color: '#1D4ED8' },
+                                                    HT:      { bg: '#D1FAE5', color: '#065F46' },
+                                                    WEBSITE: { bg: '#EDE9FE', color: '#5B21B6' },
+                                                    POPIN:   { bg: '#FEF3C7', color: '#92400E' },
+                                                };
+                                                const s = CAT_STYLES[lead.leadCategory] ?? { bg: '#F3F4F6', color: '#6B7280' };
+                                                return (
+                                                    <View style={{ backgroundColor: s.bg, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, alignSelf: 'flex-start' }}>
+                                                        <Text style={{ fontSize: 11, fontWeight: '700', color: s.color }}>{lead.leadCategory}</Text>
+                                                    </View>
+                                                );
+                                            })() : <Text variant="bodySmall" style={{ color: '#D1D5DB' }}>—</Text>}
                                         </DataTable.Cell>
                                         <DataTable.Cell>
                                             <Text variant="bodySmall">{lead.source || '—'}</Text>

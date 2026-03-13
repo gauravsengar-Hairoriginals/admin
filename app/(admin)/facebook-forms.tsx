@@ -50,6 +50,7 @@ export default function FacebookFormsScreen() {
     // ── Mapping Modal ─────────────────────────────────────────────────────
     const [mappingForm, setMappingForm] = useState<any>(null);
     const [mappingDraft, setMappingDraft] = useState<Record<string, string>>({});
+    const [mappingCategory, setMappingCategory] = useState('');
     const [mappingSaving, setMappingSaving] = useState(false);
 
     // ── Load Configs ──────────────────────────────────────────────────────
@@ -192,10 +193,15 @@ export default function FacebookFormsScreen() {
     // ── Save Mapping ──────────────────────────────────────────────────────
     const saveMapping = async () => {
         if (!mappingForm) return;
+        if (!mappingCategory) {
+            alert('⚠️ Please select a Lead Category for this form before saving.');
+            return;
+        }
         setMappingSaving(true);
         try {
             const res = await api.patch(`/facebook/forms/${mappingForm.id}/mapping`, {
                 fieldMapping: mappingDraft,
+                leadCategory: mappingCategory,
             });
             setForms(prev => prev.map(f => f.id === mappingForm.id ? { ...f, ...res.data } : f));
             setMappingForm(null);
@@ -210,6 +216,7 @@ export default function FacebookFormsScreen() {
     const openMapping = (form: any) => {
         setMappingForm(form);
         setMappingDraft({ ...(form.fieldMapping ?? {}) });
+        setMappingCategory(form.leadCategory ?? '');
     };
 
     // ── Render ────────────────────────────────────────────────────────────
@@ -386,6 +393,7 @@ export default function FacebookFormsScreen() {
                                     {/* Table Header */}
                                     <View style={s.tableHeader}>
                                         <Text style={[s.headerText, { width: 220 }]}>Form Name</Text>
+                                        <Text style={[s.headerText, { width: 100 }]}>Category</Text>
                                         <Text style={[s.headerText, { width: 100 }]}>Fields</Text>
                                         <Text style={[s.headerText, { width: 120 }]}>Leads Synced</Text>
                                         <Text style={[s.headerText, { width: 150 }]}>Last Synced</Text>
@@ -409,6 +417,27 @@ export default function FacebookFormsScreen() {
                                                         ID: {form.fbFormId}
                                                     </Text>
                                                 </View>
+
+                                                <Text style={[s.cellText, { width: 100 }]}>
+                                                    {form.leadCategory ? (() => {
+                                                        const CAT: Record<string, { bg: string; color: string }> = {
+                                                            EC:      { bg: '#DBEAFE', color: '#1D4ED8' },
+                                                            HT:      { bg: '#D1FAE5', color: '#065F46' },
+                                                            WEBSITE: { bg: '#EDE9FE', color: '#5B21B6' },
+                                                            POPIN:   { bg: '#FEF3C7', color: '#92400E' },
+                                                        };
+                                                        const c = CAT[form.leadCategory] ?? { bg: '#F3F4F6', color: '#6B7280' };
+                                                        return (
+                                                            <View style={{ backgroundColor: c.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, alignSelf: 'flex-start' }}>
+                                                                <Text style={{ fontSize: 12, fontWeight: '700', color: c.color }}>{form.leadCategory}</Text>
+                                                            </View>
+                                                        );
+                                                    })() : (
+                                                        <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, alignSelf: 'flex-start' }}>
+                                                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>⚠️ Not Set</Text>
+                                                        </View>
+                                                    )}
+                                                </Text>
 
                                                 <Text style={[s.cellText, { width: 100 }]}>{totalFields} fields</Text>
 
@@ -509,6 +538,33 @@ export default function FacebookFormsScreen() {
                             <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
                                 Map each Facebook form field to the corresponding field in your lead system.
                             </Text>
+
+                            {/* ── Lead Category (mandatory) ── */}
+                            <View style={{ marginBottom: 16, padding: 14, backgroundColor: mappingCategory ? '#F0FDF4' : '#FFF7ED', borderRadius: 10, borderWidth: 1, borderColor: mappingCategory ? '#86EFAC' : '#FCD34D' }}>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 }}>
+                                    📊 Lead Category <Text style={{ color: '#DC2626' }}>*</Text>
+                                </Text>
+                                <Text style={{ fontSize: 11, color: '#6B7280', marginBottom: 10 }}>
+                                    All leads created from this form will be assigned this category. This field is mandatory.
+                                </Text>
+                                <select
+                                    value={mappingCategory}
+                                    onChange={(e: any) => setMappingCategory(e.target.value)}
+                                    style={{
+                                        padding: 8, borderRadius: 8,
+                                        border: `1px solid ${mappingCategory ? '#86EFAC' : '#FCD34D'}`,
+                                        fontSize: 13, width: '100%',
+                                        backgroundColor: mappingCategory ? '#ECFDF5' : '#FFFBEB',
+                                        color: '#111827', fontWeight: 600,
+                                    }}
+                                >
+                                    <option value=''>— Select Category —</option>
+                                    <option value='EC'>EC (Experience Centre)</option>
+                                    <option value='HT'>HT (Hair Transplant)</option>
+                                    <option value='WEBSITE'>Website</option>
+                                    <option value='POPIN'>Popin</option>
+                                </select>
+                            </View>
 
                             <Divider style={{ marginBottom: 12 }} />
 

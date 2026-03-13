@@ -1,10 +1,9 @@
 import React from 'react';
 import { View, StyleSheet, Image, ScrollView, Pressable } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
-import { Menu, Divider, Avatar, Text } from 'react-native-paper';
+import { Menu, Divider, Avatar, Text, Icon } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../hooks/useAuth';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function AdminLayout() {
     const { signOut, user } = useAuth();
@@ -26,6 +25,9 @@ export default function AdminLayout() {
         { name: 'Lead Callers', route: '/(admin)/lead-callers', icon: 'phone-in-talk' },
         { name: 'Lead Management', route: '/(admin)/lead-management', icon: 'clipboard-list' },
         { name: 'FB Forms', route: '/(admin)/facebook-forms', icon: 'facebook' },
+        ...(user?.role === 'SUPER_ADMIN'
+            ? [{ name: 'Manage Admins', route: '/(admin)/admin-management', icon: 'shield-account' }]
+            : []),
     ];
 
     const navItems = isLeadCaller
@@ -64,12 +66,12 @@ export default function AdminLayout() {
                                     pressed && !isActive && styles.navItemPressed,
                                 ]}
                             >
-                                <MaterialCommunityIcons
-                                    name={item.icon as any}
+                                <Icon
+                                    source={item.icon}
                                     size={20}
                                     color={isActive ? Colors.primary : '#6B7280'}
-                                    style={{ marginRight: 10 }}
                                 />
+                                <View style={{ width: 10 }} />
                                 <Text
                                     style={[
                                         styles.navLabel,
@@ -105,7 +107,7 @@ export default function AdminLayout() {
                                 <Text style={styles.userName} numberOfLines={1}>{user?.name}</Text>
                                 <Text style={styles.userRole} numberOfLines={1}>{user?.role?.replace(/_/g, ' ')}</Text>
                             </View>
-                            <MaterialCommunityIcons name="chevron-up" size={18} color="#9CA3AF" />
+                            <Icon source="chevron-up" size={18} color="#9CA3AF" />
                         </Pressable>
                     }
                     contentStyle={{ backgroundColor: 'white', borderRadius: 8, marginBottom: 8, marginLeft: 8 }}
