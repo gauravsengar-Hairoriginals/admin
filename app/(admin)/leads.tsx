@@ -81,6 +81,13 @@ export default function LeadsScreen() {
     const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
     const [bulkAssignLoading, setBulkAssignLoading] = useState(false);
 
+    // ─── Auto-assign state ───────────────────────────────────────
+    const [autoAssignLoading, setAutoAssignLoading] = useState(false);
+    const [autoAssignResult, setAutoAssignResult] = useState<{
+        assigned: number; callers: number;
+        breakdown: { callerName: string; count: number }[];
+    } | null>(null);
+
     // ─── Fetch leads ──────────────────────────────────────────────────────
     const fetchLeads = useCallback(async (p = 1, search = searchQuery) => {
         try {
@@ -331,6 +338,20 @@ export default function LeadsScreen() {
     };
 
     // ─── CSV Export ────────────────────────────────────────────
+    // ─── Auto-Assign handler ───────────────────────────────────
+    const handleAutoAssign = async () => {
+        setAutoAssignLoading(true);
+        try {
+            const res = await api.post('/leads/auto-assign');
+            setAutoAssignResult(res.data);
+            fetchLeads(page);
+        } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.message || 'Auto-assign failed.');
+        } finally {
+            setAutoAssignLoading(false);
+        }
+    };
+
     const downloadCSV = async () => {
         try {
             const params: any = { limit: 10000 };
@@ -403,6 +424,27 @@ export default function LeadsScreen() {
                     <Button mode="contained" icon="account-plus" onPress={openAddModal} style={{ marginLeft: 8 }}>
                         Add Lead
                     </Button>
+                    {(isSuperAdmin || user?.role === 'ADMIN') && (
+                        <Button
+                            mode="contained"
+                            icon="account-convert"
+                            buttonColor="#059669"
+                            textColor="#fff"
+                            style={{ marginLeft: 8 }}
+                            loading={autoAssignLoading}
+                            disabled={autoAssignLoading}
+                            onPress={() => Alert.alert(
+                                '🔄 Auto-Assign Leads',
+                                'This will distribute ALL unassigned leads evenly across all lead callers (round-robin). Proceed?',
+                                [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Yes, Assign', onPress: handleAutoAssign },
+                                ]
+                            )}
+                        >
+                            Auto Assign
+                        </Button>
+                    )}
                     {isSuperAdmin && (
                         <Button
                             mode="outlined"
@@ -748,6 +790,50 @@ export default function LeadsScreen() {
                         </Button>
                     </View>
                 </Modal>
+            </Portal>
+
+            {/* ── Auto-Assign Result Dialog ── */}
+            <Portal>
+                <Dialog visible={!!autoAssignResult} onDismiss={() => setAutoAssignResult(null)}>
+                    <Dialog.Title>✅ Smart Auto-Assign Complete</Dialog.Title>
+                    <Dialog.Content>
+                        {autoAssignResult && (
+                            <>
+                                <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '600' }}>
+                                    {autoAssignResult.assigned === 0
+                                        ? '🎉 All leads are already assigned!'
+                                        : `Assigned ${autoAssignResult.assigned} lead${autoAssignResult.assigned > 1 ? 's' : ''} across ${autoAssignResult.callers} caller${autoAssignResult.callers > 1 ? 's' : ''} using category matching.`}
+                                </Text>
+                                {autoAssignResult.unroutable > 0 && (
+                                    <Text variant="bodySmall" style={{ color: '#EF4444', marginBottom: 10 }}>
+                                        ⚠️ {autoAssignResult.unroutable} lead{autoAssignResult.unroutable > 1 ? 's' : ''} could not be routed (assigned via fallback).
+                                    </Text>
+                                )}
+
+                                {/* Per-caller breakdown */}
+                                <View style={{ marginTop: 8 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 2, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
+                                        <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2 }}>CALLER</Text>
+                                        <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 1, textAlign: 'center' }}>LEADS</Text>
+                                        <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2, textAlign: 'right' }}>CATEGORIES</Text>
+                                    </View>
+                                    {autoAssignResult.breakdown.map((b: any) => (
+                                        <View key={b.callerName} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                                            <Text variant="bodySmall" style={{ color: '#111827', fontWeight: '600', flex: 2 }}>{b.callerName}</Text>
+                                            <Text variant="bodySmall" style={{ color: '#6366F1', fontWeight: '700', flex: 1, textAlign: 'center' }}>{b.count}</Text>
+                                            <Text variant="bodySmall" style={{ color: '#6B7280', flex: 2, textAlign: 'right', fontSize: 11 }}>
+                                                {Array.isArray(b.categories) ? b.categories.join(', ') : '—'}
+                                            </Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            </>
+                        )}
+                    </Dialog.Content>
+                    <Dialog.Actions>
+                        <Button onPress={() => setAutoAssignResult(null)}>Done</Button>
+                    </Dialog.Actions>
+                </Dialog>
             </Portal>
 
             {/* ── Assign Modal (single) ── */}
