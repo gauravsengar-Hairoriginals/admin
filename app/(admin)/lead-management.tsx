@@ -17,6 +17,7 @@ import {
     ActivityIndicator,
     Portal,
     Modal,
+    Chip,
 } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
@@ -525,6 +526,7 @@ export default function LeadManagementScreen() {
 
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
+    const [categoryFilter, setCategoryFilter] = useState('');
     const [agingSort, setAgingSort] = useState<'none' | 'asc' | 'desc'>('none');
     const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
     const [exportFrom, setExportFrom] = useState('');
@@ -571,6 +573,7 @@ export default function LeadManagementScreen() {
                     campaign: colFilters.campaign || undefined,
                     status: colFilters.status || undefined,
                     assignedTo: colFilters.assignedTo || undefined,
+                    leadCategory: categoryFilter || undefined,
                 }
             });
             setLeads(res.data.leads ?? res.data ?? []);
@@ -581,7 +584,7 @@ export default function LeadManagementScreen() {
             setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, [search, filter, colFilters]);
+    }, [search, filter, colFilters, categoryFilter]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -589,7 +592,7 @@ export default function LeadManagementScreen() {
             loadLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, filter, search]);
+    }, [colFilters, filter, search, categoryFilter]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -849,6 +852,43 @@ export default function LeadManagementScreen() {
                     </Button>
                 )}
             </View>
+
+            {/* ── Category filter chips ── */}
+            {(() => {
+                const CATS = [
+                    { key: '', label: 'All', bg: '#F3F4F6', color: '#374151', activeBg: '#374151', activeColor: '#fff' },
+                    { key: 'EC', label: '🔵 EC', bg: '#DBEAFE', color: '#1D4ED8', activeBg: '#1D4ED8', activeColor: '#fff' },
+                    { key: 'HT', label: '🟢 HT', bg: '#D1FAE5', color: '#065F46', activeBg: '#065F46', activeColor: '#fff' },
+                    { key: 'WEBSITE', label: '🟣 Website', bg: '#EDE9FE', color: '#5B21B6', activeBg: '#5B21B6', activeColor: '#fff' },
+                    { key: 'POPIN', label: '🟡 Popin', bg: '#FEF3C7', color: '#92400E', activeBg: '#D97706', activeColor: '#fff' },
+                ];
+                return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 2, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginRight: 4 }}>Category:</Text>
+                        {CATS.map(c => {
+                            const active = categoryFilter === c.key;
+                            return (
+                                <Chip
+                                    key={c.key}
+                                    mode={active ? 'flat' : 'outlined'}
+                                    selected={active}
+                                    onPress={() => setCategoryFilter(c.key)}
+                                    style={{
+                                        backgroundColor: active ? c.activeBg : c.bg,
+                                        borderColor: active ? c.activeBg : 'transparent',
+                                    }}
+                                    textStyle={{ color: active ? c.activeColor : c.color, fontSize: 12, fontWeight: active ? '700' : '500' }}
+                                >
+                                    {c.label}
+                                </Chip>
+                            );
+                        })}
+                        {categoryFilter && (
+                            <Text style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 4 }}>{total} leads found</Text>
+                        )}
+                    </View>
+                );
+            })()}
 
             {/* ── Filter Tabs ── */}
             <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 2, marginBottom: 12 }}>
