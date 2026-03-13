@@ -5,8 +5,8 @@ import {
 import {
     Text, Card, ActivityIndicator, Button, Surface, SegmentedButtons,
 } from 'react-native-paper';
-import { AdminPageLayout } from '../../components/AdminPageLayout';
-import { api } from '../../utils/api';
+import AdminPageLayout from '../../components/AdminPageLayout';
+import api from '../../services/api';
 import { Colors } from '../../constants/Colors';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
