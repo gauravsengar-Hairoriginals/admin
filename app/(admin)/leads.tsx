@@ -656,18 +656,18 @@ export default function LeadsScreen() {
                 )}
             </Card>
 
-            {/* ── Floating Bulk Action Bar ── */}
+            {/* ── Bulk Action Bar — appears when leads are selected ── */}
             {selectedIds.size > 0 && (
                 <View style={{
-                    position: 'absolute' as any, bottom: 24, left: '50%', transform: [{ translateX: -200 }],
-                    width: 400, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                    backgroundColor: '#1E293B', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12,
-                    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, elevation: 8,
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    backgroundColor: '#1E293B', borderRadius: 10,
+                    paddingHorizontal: 20, paddingVertical: 12,
+                    marginBottom: 8,
                 }}>
                     <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
-                        {selectedIds.size} lead{selectedIds.size > 1 ? 's' : ''} selected
+                        ✅ {selectedIds.size} lead{selectedIds.size > 1 ? 's' : ''} selected
                     </Text>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
                         <Button
                             mode="contained"
                             icon="account-arrow-right"
@@ -675,7 +675,7 @@ export default function LeadsScreen() {
                             onPress={() => { setBulkAssignOpen(true); setSelectedCaller(null); setCallerSearch(''); fetchCallers(); }}
                             compact
                         >
-                            Bulk Assign
+                            Assign to Caller
                         </Button>
                         <Button
                             mode="text"
