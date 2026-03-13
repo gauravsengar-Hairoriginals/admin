@@ -83,9 +83,14 @@ export default function LeadsScreen() {
 
     // ─── Auto-assign state ───────────────────────────────────────
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
+    const [autoAssignConfirming, setAutoAssignConfirming] = useState(false);
+    const [autoAssignPreview, setAutoAssignPreview] = useState<{
+        totalUnassigned: number; willAssign: number; unroutable: number; callers: number;
+        breakdown: { callerName: string; count: number; categories: string[] }[];
+    } | null>(null);
     const [autoAssignResult, setAutoAssignResult] = useState<{
-        assigned: number; callers: number;
-        breakdown: { callerName: string; count: number }[];
+        assigned: number; callers: number; unroutable: number;
+        breakdown: { callerName: string; count: number; categories: string[] }[];
     } | null>(null);
 
     // ─── Fetch leads ──────────────────────────────────────────────────────
@@ -338,17 +343,31 @@ export default function LeadsScreen() {
     };
 
     // ─── CSV Export ────────────────────────────────────────────
-    // ─── Auto-Assign handler ───────────────────────────────────
+    // ─── Auto-Assign: fetch preview (dry-run, no DB writes) ─────────────
     const handleAutoAssign = async () => {
         setAutoAssignLoading(true);
         try {
+            const res = await api.get('/leads/auto-assign/preview');
+            setAutoAssignPreview(res.data);
+        } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.message || 'Preview failed.');
+        } finally {
+            setAutoAssignLoading(false);
+        }
+    };
+
+    // ─── Auto-Assign: confirm and commit to DB ───────────────────────────
+    const handleAutoAssignConfirm = async () => {
+        setAutoAssignConfirming(true);
+        try {
             const res = await api.post('/leads/auto-assign');
+            setAutoAssignPreview(null);
             setAutoAssignResult(res.data);
             fetchLeads(page);
         } catch (err: any) {
             Alert.alert('Error', err?.response?.data?.message || 'Auto-assign failed.');
         } finally {
-            setAutoAssignLoading(false);
+            setAutoAssignConfirming(false);
         }
     };
 
@@ -433,14 +452,7 @@ export default function LeadsScreen() {
                             style={{ marginLeft: 8 }}
                             loading={autoAssignLoading}
                             disabled={autoAssignLoading}
-                            onPress={() => Alert.alert(
-                                '🔄 Auto-Assign Leads',
-                                'This will distribute ALL unassigned leads evenly across all lead callers (round-robin). Proceed?',
-                                [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Yes, Assign', onPress: handleAutoAssign },
-                                ]
-                            )}
+                            onPress={handleAutoAssign}
                         >
                             Auto Assign
                         </Button>
@@ -792,33 +804,82 @@ export default function LeadsScreen() {
                 </Modal>
             </Portal>
 
-            {/* ── Auto-Assign Result Dialog ── */}
+            {/* ── Auto-Assign Preview Dialog (dry-run, no DB changes yet) ── */}
+            <Portal>
+                <Dialog visible={!!autoAssignPreview} onDismiss={() => setAutoAssignPreview(null)}>
+                    <Dialog.Title>🔍 Auto-Assign Preview</Dialog.Title>
+                    <Dialog.Content>
+                        {autoAssignPreview && (
+                            <>
+                                <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '600' }}>
+                                    {autoAssignPreview.totalUnassigned === 0
+                                        ? '🎉 No unassigned leads — nothing to assign!'
+                                        : `Ready to assign ${autoAssignPreview.willAssign} of ${autoAssignPreview.totalUnassigned} unassigned lead${autoAssignPreview.totalUnassigned > 1 ? 's' : ''} across ${autoAssignPreview.callers} caller${autoAssignPreview.callers > 1 ? 's' : ''}.`}
+                                </Text>
+                                <Text variant="bodySmall" style={{ color: '#6B7280', marginBottom: 12 }}>
+                                    No changes have been made yet. Review the distribution below and confirm to proceed.
+                                </Text>
+                                {autoAssignPreview.unroutable > 0 && (
+                                    <Text variant="bodySmall" style={{ color: '#F97316', marginBottom: 10 }}>
+                                        ⚠️ {autoAssignPreview.unroutable} lead{autoAssignPreview.unroutable > 1 ? 's' : ''} have no category match — will use all-caller fallback.
+                                    </Text>
+                                )}
+                                {autoAssignPreview.breakdown.length > 0 && (
+                                    <View style={{ marginTop: 4 }}>
+                                        <View style={{ flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 2, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
+                                            <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2 }}>CALLER</Text>
+                                            <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 1, textAlign: 'center' }}>LEADS</Text>
+                                            <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2, textAlign: 'right' }}>CATEGORIES</Text>
+                                        </View>
+                                        {autoAssignPreview.breakdown.map((b: any) => (
+                                            <View key={b.callerName} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                                                <Text variant="bodySmall" style={{ color: '#111827', fontWeight: '600', flex: 2 }}>{b.callerName}</Text>
+                                                <Text variant="bodySmall" style={{ color: '#6366F1', fontWeight: '700', flex: 1, textAlign: 'center' }}>{b.count}</Text>
+                                                <Text variant="bodySmall" style={{ color: '#6B7280', flex: 2, textAlign: 'right', fontSize: 11 }}>
+                                                    {Array.isArray(b.categories) ? b.categories.join(', ') : '—'}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </>
+                        )}
+                    </Dialog.Content>
+                    <Dialog.Actions>
+                        <Button onPress={() => setAutoAssignPreview(null)}>Cancel</Button>
+                        <Button
+                            mode="contained"
+                            buttonColor="#059669"
+                            onPress={handleAutoAssignConfirm}
+                            loading={autoAssignConfirming}
+                            disabled={autoAssignConfirming || (autoAssignPreview?.totalUnassigned === 0)}
+                        >
+                            Confirm &amp; Assign
+                        </Button>
+                    </Dialog.Actions>
+                </Dialog>
+            </Portal>
+
+            {/* ── Auto-Assign Result Dialog (post-commit) ── */}
             <Portal>
                 <Dialog visible={!!autoAssignResult} onDismiss={() => setAutoAssignResult(null)}>
-                    <Dialog.Title>✅ Smart Auto-Assign Complete</Dialog.Title>
+                    <Dialog.Title>✅ Auto-Assign Complete</Dialog.Title>
                     <Dialog.Content>
                         {autoAssignResult && (
                             <>
                                 <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '600' }}>
                                     {autoAssignResult.assigned === 0
                                         ? '🎉 All leads are already assigned!'
-                                        : `Assigned ${autoAssignResult.assigned} lead${autoAssignResult.assigned > 1 ? 's' : ''} across ${autoAssignResult.callers} caller${autoAssignResult.callers > 1 ? 's' : ''} using category matching.`}
+                                        : `Assigned ${autoAssignResult.assigned} lead${autoAssignResult.assigned > 1 ? 's' : ''} across ${autoAssignResult.callers} caller${autoAssignResult.callers > 1 ? 's' : ''}.`}
                                 </Text>
-                                {autoAssignResult.unroutable > 0 && (
-                                    <Text variant="bodySmall" style={{ color: '#EF4444', marginBottom: 10 }}>
-                                        ⚠️ {autoAssignResult.unroutable} lead{autoAssignResult.unroutable > 1 ? 's' : ''} could not be routed (assigned via fallback).
-                                    </Text>
-                                )}
-
-                                {/* Per-caller breakdown */}
                                 <View style={{ marginTop: 8 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 2, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
+                                    <View style={{ flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 2, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
                                         <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2 }}>CALLER</Text>
                                         <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 1, textAlign: 'center' }}>LEADS</Text>
                                         <Text variant="bodySmall" style={{ color: '#6B7280', fontWeight: '700', flex: 2, textAlign: 'right' }}>CATEGORIES</Text>
                                     </View>
                                     {autoAssignResult.breakdown.map((b: any) => (
-                                        <View key={b.callerName} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                                        <View key={b.callerName} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
                                             <Text variant="bodySmall" style={{ color: '#111827', fontWeight: '600', flex: 2 }}>{b.callerName}</Text>
                                             <Text variant="bodySmall" style={{ color: '#6366F1', fontWeight: '700', flex: 1, textAlign: 'center' }}>{b.count}</Text>
                                             <Text variant="bodySmall" style={{ color: '#6B7280', flex: 2, textAlign: 'right', fontSize: 11 }}>
