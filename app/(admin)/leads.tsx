@@ -854,7 +854,7 @@ export default function LeadsScreen() {
                             loading={autoAssignConfirming}
                             disabled={autoAssignConfirming || (autoAssignPreview?.totalUnassigned === 0)}
                         >
-                            Confirm &amp; Assign
+                            Confirm & Assign
                         </Button>
                     </Dialog.Actions>
                 </Dialog>
