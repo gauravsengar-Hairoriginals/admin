@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import api, { setUnauthorizedHandler } from '../services/api';
-import { getToken, getUser, saveToken, saveUser, removeToken, removeUser, removeRefreshToken } from '../services/storage';
+import { getToken, getUser, saveToken, saveUser, removeToken, removeUser } from '../services/storage';
 
 interface AuthContextType {
     user: any | null;
@@ -30,7 +30,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // Wire up the Axios interceptor: any 401/403 → signOut → redirect to login
         setUnauthorizedHandler(() => {
             removeToken();
-            removeRefreshToken();
             removeUser();
             setUser(null);
         });
@@ -70,7 +69,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const signOut = async () => {
         await removeToken();
-        await removeRefreshToken();
         await removeUser();
         setUser(null);
     };
