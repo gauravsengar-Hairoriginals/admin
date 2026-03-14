@@ -37,10 +37,6 @@ export default function LoginScreen() {
                 return;
             }
 
-            if (refreshToken) {
-                const { saveRefreshToken } = await import('../../services/storage');
-                await saveRefreshToken(refreshToken);
-            }
             await signIn(accessToken, user);
         } catch (err: any) {
             console.error(err);

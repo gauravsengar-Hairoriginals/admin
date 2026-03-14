@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { API_URL } from '../constants/Colors';
-import { getToken } from '../services/storage';
+import { getToken, getRefreshToken, saveToken } from '../services/storage';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -53,7 +53,6 @@ api.interceptors.response.use(
             _isRefreshing = true;
 
             try {
-                const { getRefreshToken, saveToken } = await import('./storage');
                 const refreshToken = await getRefreshToken();
 
                 if (!refreshToken) throw new Error('No refresh token stored');
