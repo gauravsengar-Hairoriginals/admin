@@ -27,7 +27,7 @@ export default function LoginScreen() {
                 password,
             });
 
-            const { accessToken, user } = response.data;
+            const { accessToken, refreshToken, user } = response.data;
 
             // Check if user has admin privileges
             const allowedRoles = ['SUPER_ADMIN', 'ADMIN', 'CEO', 'CTO', 'COO', 'LEAD_CALLER'];
@@ -37,6 +37,10 @@ export default function LoginScreen() {
                 return;
             }
 
+            if (refreshToken) {
+                const { saveRefreshToken } = await import('../../services/storage');
+                await saveRefreshToken(refreshToken);
+            }
             await signIn(accessToken, user);
         } catch (err: any) {
             console.error(err);

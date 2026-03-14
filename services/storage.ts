@@ -12,9 +12,19 @@ export const removeToken = async () => {
     await SecureStore.deleteItemAsync('adminAccessToken');
 };
 
+export const saveRefreshToken = async (token: string) => {
+    await SecureStore.setItemAsync('adminRefreshToken', token);
+};
+
+export const getRefreshToken = async (): Promise<string | null> => {
+    return await SecureStore.getItemAsync('adminRefreshToken');
+};
+
+export const removeRefreshToken = async () => {
+    await SecureStore.deleteItemAsync('adminRefreshToken');
+};
+
 export const saveUser = async (user: any) => {
-    // On native, you might want to store user in AsyncStorage or SecureStore
-    // For simplicity, we'll strip it here or store stringified
     await SecureStore.setItemAsync('adminUser', JSON.stringify(user));
 };
 
