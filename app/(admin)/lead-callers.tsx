@@ -110,8 +110,12 @@ export default function LeadCallersScreen() {
         setFormError('');
         try {
             if (editingCaller) {
-                // Update category/region
+                // Update all editable fields; password is optional
                 await api.post(`/admin/lead-callers/${editingCaller.id}/update`, {
+                    name: form.name.trim(),
+                    email: form.email.trim().toLowerCase(),
+                    phone: form.phone.trim(),
+                    password: form.password.trim() || undefined,
                     callerCategory: form.callerCategory || undefined,
                     callerRegion: form.callerRegion || undefined,
                 });
@@ -323,42 +327,38 @@ export default function LeadCallersScreen() {
                             {editingCaller ? 'Edit Caller' : 'Add Lead Caller'}
                         </Text>
 
-                        {!editingCaller && (
-                            <>
-                                <TextInput
-                                    label="Full Name *"
-                                    value={form.name}
-                                    onChangeText={v => setForm(f => ({ ...f, name: v }))}
-                                    mode="outlined"
-                                    style={{ marginBottom: 12 }}
-                                />
-                                <TextInput
-                                    label="Email *"
-                                    value={form.email}
-                                    onChangeText={v => setForm(f => ({ ...f, email: v }))}
-                                    mode="outlined"
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    style={{ marginBottom: 12 }}
-                                />
-                                <TextInput
-                                    label="Phone *"
-                                    value={form.phone}
-                                    onChangeText={v => setForm(f => ({ ...f, phone: v }))}
-                                    mode="outlined"
-                                    keyboardType="phone-pad"
-                                    style={{ marginBottom: 12 }}
-                                />
-                                <TextInput
-                                    label="Password (leave blank to auto-generate)"
-                                    value={form.password}
-                                    onChangeText={v => setForm(f => ({ ...f, password: v }))}
-                                    mode="outlined"
-                                    secureTextEntry
-                                    style={{ marginBottom: 16 }}
-                                />
-                            </>
-                        )}
+                        <TextInput
+                            label="Full Name *"
+                            value={form.name}
+                            onChangeText={v => setForm(f => ({ ...f, name: v }))}
+                            mode="outlined"
+                            style={{ marginBottom: 12 }}
+                        />
+                        <TextInput
+                            label="Email *"
+                            value={form.email}
+                            onChangeText={v => setForm(f => ({ ...f, email: v }))}
+                            mode="outlined"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            style={{ marginBottom: 12 }}
+                        />
+                        <TextInput
+                            label="Phone *"
+                            value={form.phone}
+                            onChangeText={v => setForm(f => ({ ...f, phone: v }))}
+                            mode="outlined"
+                            keyboardType="phone-pad"
+                            style={{ marginBottom: 12 }}
+                        />
+                        <TextInput
+                            label={editingCaller ? 'New Password (leave blank to keep unchanged)' : 'Password (leave blank to auto-generate)'}
+                            value={form.password}
+                            onChangeText={v => setForm(f => ({ ...f, password: v }))}
+                            mode="outlined"
+                            secureTextEntry
+                            style={{ marginBottom: 16 }}
+                        />
 
                         <Text style={styles.fieldLabel}>Caller Category</Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
