@@ -184,11 +184,14 @@ export default function CallerDashboardScreen() {
                                         {profile.callerCategory.replace(/_/g, ' ')}
                                     </Chip>
                                 )}
-                                {profile.callerRegion && (
-                                    <Chip icon="map-marker" mode="flat" style={{ backgroundColor: '#F0FDF4' }} textStyle={{ color: '#16A34A', fontSize: 12 }}>
-                                        {profile.callerRegion.replace(/_/g, ' ')}
-                                    </Chip>
-                                )}
+                                {Array.isArray(profile.callerRegions) && profile.callerRegions.length > 0
+                                    ? profile.callerRegions.map((r: string) => (
+                                        <Chip key={r} icon="map-marker" mode="flat" style={{ backgroundColor: '#F0FDF4' }} textStyle={{ color: '#16A34A', fontSize: 12 }}>
+                                            {r.replace(/_/g, ' ')}
+                                        </Chip>
+                                    ))
+                                    : null
+                                }
                             </View>
                         )}
                     </Card.Content>

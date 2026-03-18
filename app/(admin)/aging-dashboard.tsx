@@ -25,6 +25,14 @@ interface CategoryData {
     stages: StageRow[];
 }
 
+interface SourceData {
+    source: string;
+    total: number;
+    avgAgingDays: number;
+    buckets: string[];
+    stages: StageRow[];
+}
+
 interface CallerData {
     callerId: string;
     callerName: string;
@@ -53,6 +61,19 @@ const CALLER_COLORS = [
     { color: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
     { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
     { color: '#BE123C', bg: '#FFF1F2', border: '#FECDD3' },
+];
+
+// Same palette reused for sources (deterministic by index)
+const SOURCE_COLORS = [
+    { color: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
+    { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
+    { color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+    { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
+    { color: '#065F46', bg: '#F0FDF4', border: '#BBF7D0' },
+    { color: '#BE123C', bg: '#FFF1F2', border: '#FECDD3' },
+    { color: '#1E40AF', bg: '#EFF6FF', border: '#BFDBFE' },
+    { color: '#6B21A8', bg: '#FAF5FF', border: '#DDD6FE' },
+    { color: '#374151', bg: '#F9FAFB', border: '#E5E7EB' },
 ];
 
 const STAGE_LABELS: Record<string, string> = {
@@ -201,21 +222,24 @@ const SummaryCard = ({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function AgingDashboardScreen() {
-    const [tab, setTab] = useState<'category' | 'caller'>('category');
+    const [tab, setTab] = useState<'category' | 'caller' | 'source'>('category');
     const [catData,    setCatData]    = useState<CategoryData[]>([]);
     const [callerData, setCallerData] = useState<CallerData[]>([]);
+    const [sourceData, setSourceData] = useState<SourceData[]>([]);
     const [loading,    setLoading]    = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     const fetchAll = useCallback(async () => {
         try {
-            const [catRes, callerRes] = await Promise.all([
+            const [catRes, callerRes, sourceRes] = await Promise.all([
                 api.get('/leads/aging-dashboard'),
                 api.get('/leads/caller-aging-dashboard'),
+                api.get('/leads/source-aging-dashboard'),
             ]);
             setCatData(catRes.data.categories ?? []);
             setCallerData(callerRes.data.callers ?? []);
+            setSourceData(sourceRes.data.sources ?? []);
             setLastUpdated(new Date());
         } catch (err) {
             console.error('Aging dashboard fetch failed:', err);
@@ -231,10 +255,13 @@ export default function AgingDashboardScreen() {
 
     const catGrandTotal    = catData.reduce((s, c) => s + c.total, 0);
     const callerGrandTotal = callerData.reduce((s, c) => s + c.total, 0);
-    const grandTotal = tab === 'category' ? catGrandTotal : callerGrandTotal;
+    const sourceGrandTotal = sourceData.reduce((s, c) => s + c.total, 0);
+    const grandTotal = tab === 'category' ? catGrandTotal : tab === 'caller' ? callerGrandTotal : sourceGrandTotal;
     const breadcrumb = tab === 'category'
         ? `${catData.length} categories`
-        : `${callerData.length} callers`;
+        : tab === 'caller'
+        ? `${callerData.length} callers`
+        : `${sourceData.length} sources`;
 
     return (
         <AdminPageLayout>
@@ -261,8 +288,9 @@ export default function AgingDashboardScreen() {
                 buttons={[
                     { value: 'category', label: '🏷️  By Category', icon: 'tag-multiple' },
                     { value: 'caller',   label: '📞  By Caller',   icon: 'phone-in-talk' },
+                    { value: 'source',   label: '🌐  By Source',   icon: 'web' },
                 ]}
-                style={{ marginBottom: 16, alignSelf: 'flex-start', minWidth: 340 }}
+                style={{ marginBottom: 16, alignSelf: 'flex-start', minWidth: 500 }}
             />
 
             {/* Bucket legend */}
@@ -317,7 +345,7 @@ export default function AgingDashboardScreen() {
                                 );
                             })}
                         </>
-                    ) : (
+                    ) : tab === 'caller' ? (
                         <>
                             {/* Caller summary cards */}
                             <View style={styles.summaryRow}>
@@ -352,6 +380,39 @@ export default function AgingDashboardScreen() {
                                         bg={meta.bg} border={meta.border}
                                         total={caller.total} avgAgingDays={caller.avgAgingDays}
                                         buckets={caller.buckets} stages={caller.stages}
+                                    />
+                                );
+                            })}
+                        </>
+                    ) : (
+                        <>
+                            {/* Source summary cards */}
+                            <View style={styles.summaryRow}>
+                                {sourceData.map((src, idx) => {
+                                    const meta = SOURCE_COLORS[idx % SOURCE_COLORS.length];
+                                    return (
+                                        <SummaryCard
+                                            key={src.source}
+                                            label={`🌐 ${src.source}`}
+                                            color={meta.color}
+                                            bg={meta.bg}
+                                            border={meta.border}
+                                            total={src.total}
+                                            avgAgingDays={src.avgAgingDays}
+                                            stages={src.stages}
+                                        />
+                                    );
+                                })}
+                            </View>
+                            {/* Source grids */}
+                            {sourceData.map((src, idx) => {
+                                const meta = SOURCE_COLORS[idx % SOURCE_COLORS.length];
+                                return (
+                                    <AgingGrid key={src.source}
+                                        label={`🌐 ${src.source}`} color={meta.color}
+                                        bg={meta.bg} border={meta.border}
+                                        total={src.total} avgAgingDays={src.avgAgingDays}
+                                        buckets={src.buckets} stages={src.stages}
                                     />
                                 );
                             })}

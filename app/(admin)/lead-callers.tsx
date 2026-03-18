@@ -20,21 +20,6 @@ import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
 import AdminPageLayout from '../../components/AdminPageLayout';
 
-const CALLER_CATEGORIES = [
-    { label: 'EC Caller', value: 'EC_CALLER' },
-    { label: 'HT Caller', value: 'HT_CALLER' },
-    { label: 'Website Caller', value: 'WEBSITE_CALLER' },
-    { label: 'Popin Caller', value: 'POPIN_CALLER' },
-    { label: 'International', value: 'INTERNATIONAL_CALLER' },
-];
-
-const CALLER_REGIONS = [
-    { label: 'Delhi-NCR', value: 'DELHI_NCR' },
-    { label: 'Hyderabad', value: 'HYDERABAD' },
-    { label: 'Mumbai', value: 'MUMBAI' },
-    { label: 'Rest of India', value: 'REST_OF_INDIA' },
-];
-
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
     EC_CALLER: { bg: '#DBEAFE', text: '#1D4ED8' },
     HT_CALLER: { bg: '#D1FAE5', text: '#065F46' },
@@ -43,12 +28,21 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
     INTERNATIONAL_CALLER: { bg: '#F3F4F6', text: '#374151' },
 };
 
-const EMPTY_FORM = { name: '', email: '', phone: '', password: '', callerCategory: '', callerRegion: '' };
+const CALLER_CATEGORIES = [
+    { label: 'EC Caller', value: 'EC_CALLER' },
+    { label: 'HT Caller', value: 'HT_CALLER' },
+    { label: 'Website Caller', value: 'WEBSITE_CALLER' },
+    { label: 'Popin Caller', value: 'POPIN_CALLER' },
+    { label: 'International', value: 'INTERNATIONAL_CALLER' },
+];
+
+const EMPTY_FORM = { name: '', email: '', phone: '', password: '', callerCategory: '', callerRegions: [] as string[] };
 
 export default function LeadCallersScreen() {
     const [callers, setCallers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [availableRegions, setAvailableRegions] = useState<{ label: string; value: string }[]>([]);
 
     const [modalVisible, setModalVisible] = useState(false);
     const [editingCaller, setEditingCaller] = useState<any>(null);
@@ -78,7 +72,23 @@ export default function LeadCallersScreen() {
         }
     }, [searchQuery]);
 
-    useEffect(() => { fetchCallers(); }, []);
+    useEffect(() => {
+        fetchCallers();
+        // Load available regions from DB
+        api.get('/admin/city-regions').then(res => {
+            setAvailableRegions(
+                (res.data as any[]).map(r => ({ label: r.regionName, value: r.regionCode }))
+            );
+        }).catch(() => {
+            // Fallback to hardcoded
+            setAvailableRegions([
+                { label: 'Delhi-NCR', value: 'DELHI_NCR' },
+                { label: 'Hyderabad', value: 'HYDERABAD' },
+                { label: 'Mumbai', value: 'MUMBAI' },
+                { label: 'Rest of India', value: 'REST_OF_INDIA' },
+            ]);
+        });
+    }, []);
 
     const openAddModal = () => {
         setEditingCaller(null);
@@ -95,7 +105,7 @@ export default function LeadCallersScreen() {
             phone: caller.phone || '',
             password: '',
             callerCategory: caller.callerCategory || '',
-            callerRegion: caller.callerRegion || '',
+            callerRegions: Array.isArray(caller.callerRegions) ? caller.callerRegions : [],
         });
         setFormError('');
         setModalVisible(true);
@@ -117,7 +127,7 @@ export default function LeadCallersScreen() {
                     phone: form.phone.trim(),
                     password: form.password.trim() || undefined,
                     callerCategory: form.callerCategory || undefined,
-                    callerRegion: form.callerRegion || undefined,
+                    callerRegions: form.callerRegions,
                 });
                 fetchCallers();
                 setModalVisible(false);
@@ -129,7 +139,7 @@ export default function LeadCallersScreen() {
                     phone: form.phone.trim(),
                     password: form.password.trim() || undefined,
                     callerCategory: form.callerCategory || undefined,
-                    callerRegion: form.callerRegion || undefined,
+                    callerRegions: form.callerRegions,
                 });
                 setCallers(prev => [res.data, ...prev]);
                 setModalVisible(false);
@@ -243,7 +253,11 @@ export default function LeadCallersScreen() {
                                 callers.map(caller => {
                                     const catColor = CATEGORY_COLORS[caller.callerCategory] ?? { bg: '#F3F4F6', text: '#374151' };
                                     const catLabel = CALLER_CATEGORIES.find(c => c.value === caller.callerCategory)?.label ?? '—';
-                                    const regionLabel = CALLER_REGIONS.find(r => r.value === caller.callerRegion)?.label ?? '—';
+                                    const regionLabels = Array.isArray(caller.callerRegions) && caller.callerRegions.length > 0
+                                        ? caller.callerRegions.map((r: string) =>
+                                            availableRegions.find(ar => ar.value === r)?.label ?? r
+                                          ).join(', ')
+                                        : '—';
                                     return (
                                         <DataTable.Row key={caller.id} style={styles.tableRow}>
                                             <DataTable.Cell style={{ flex: 2 }}>
@@ -258,7 +272,7 @@ export default function LeadCallersScreen() {
                                                 </Chip>
                                             </DataTable.Cell>
                                             <DataTable.Cell style={{ flex: 1.2 }}>
-                                                <Text variant="bodySmall">{regionLabel}</Text>
+                                                <Text variant="bodySmall" numberOfLines={2}>{regionLabels}</Text>
                                             </DataTable.Cell>
                                             <DataTable.Cell style={{ flex: 1.5 }}>
                                                 <Text variant="bodySmall">{caller.phone}</Text>
@@ -380,16 +394,24 @@ export default function LeadCallersScreen() {
                             })}
                         </View>
 
-                        <Text style={styles.fieldLabel}>Region</Text>
+                        <Text style={styles.fieldLabel}>Regions <Text style={{ color: '#9CA3AF', fontWeight: '400' }}>(select all that apply — none = any region)</Text></Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-                            {CALLER_REGIONS.map(reg => {
-                                const selected = form.callerRegion === reg.value;
+                            {availableRegions.map(reg => {
+                                const selected = (form.callerRegions as string[]).includes(reg.value);
                                 return (
                                     <Chip
                                         key={reg.value}
                                         mode="flat"
                                         selected={selected}
-                                        onPress={() => setForm(f => ({ ...f, callerRegion: reg.value }))}
+                                        onPress={() => setForm(f => {
+                                            const current = f.callerRegions as string[];
+                                            return {
+                                                ...f,
+                                                callerRegions: selected
+                                                    ? current.filter(r => r !== reg.value)
+                                                    : [...current, reg.value],
+                                            };
+                                        })}
                                         style={{ backgroundColor: selected ? '#EEF2FF' : '#F3F4F6', borderWidth: selected ? 2 : 0, borderColor: '#4338CA' }}
                                         textStyle={{ color: selected ? '#4338CA' : '#6B7280', fontWeight: selected ? '700' : '400' }}
                                     >

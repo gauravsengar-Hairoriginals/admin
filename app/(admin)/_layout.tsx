@@ -26,6 +26,7 @@ export default function AdminLayout() {
         { name: 'Lead Management', route: '/(admin)/lead-management', icon: 'clipboard-list' },
         { name: 'Aging Report', route: '/(admin)/aging-dashboard', icon: 'chart-bar' },
         { name: 'FB Forms', route: '/(admin)/facebook-forms', icon: 'facebook' },
+        { name: 'City Regions', route: '/(admin)/city-regions', icon: 'map-marker-multiple' },
         ...(user?.role === 'SUPER_ADMIN'
             ? [{ name: 'Manage Admins', route: '/(admin)/admin-management', icon: 'shield-account' }]
             : []),
