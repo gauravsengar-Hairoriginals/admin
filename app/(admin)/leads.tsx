@@ -84,6 +84,7 @@ export default function LeadsScreen() {
     // ─── Auto-assign state ───────────────────────────────────────
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
     const [autoAssignConfirming, setAutoAssignConfirming] = useState(false);
+    const [onlineOnly, setOnlineOnly] = useState(true); // true = on-shift callers only
     const [autoAssignPreview, setAutoAssignPreview] = useState<{
         totalUnassigned: number; willAssign: number; unroutable: number; callers: number;
         breakdown: { callerName: string; count: number; categories: string[] }[];
@@ -347,7 +348,9 @@ export default function LeadsScreen() {
     const handleAutoAssign = async () => {
         setAutoAssignLoading(true);
         try {
-            const res = await api.get('/leads/auto-assign/preview');
+            const res = await api.get('/leads/auto-assign/preview', {
+                params: { onlineOnly: onlineOnly ? 'true' : 'false' },
+            });
             setAutoAssignPreview(res.data);
         } catch (err: any) {
             Alert.alert('Error', err?.response?.data?.message || 'Preview failed.');
@@ -360,7 +363,7 @@ export default function LeadsScreen() {
     const handleAutoAssignConfirm = async () => {
         setAutoAssignConfirming(true);
         try {
-            const res = await api.post('/leads/auto-assign');
+            const res = await api.post('/leads/auto-assign', { onlineOnly });
             setAutoAssignPreview(null);
             setAutoAssignResult(res.data);
             fetchLeads(page);
@@ -454,7 +457,7 @@ export default function LeadsScreen() {
                             disabled={autoAssignLoading}
                             onPress={handleAutoAssign}
                         >
-                            Auto Assign
+                            Auto Assign {onlineOnly ? '🟢' : '🌐'}
                         </Button>
                     )}
                     {isSuperAdmin && (
@@ -811,6 +814,35 @@ export default function LeadsScreen() {
                     <Dialog.Content>
                         {autoAssignPreview && (
                             <>
+                                {/* Online-only toggle */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text variant="bodySmall" style={{ fontWeight: '700', color: '#374151' }}>
+                                            {onlineOnly ? '🟢 On-shift callers only' : '🌐 All active callers'}
+                                        </Text>
+                                        <Text variant="bodySmall" style={{ color: '#9CA3AF', marginTop: 2 }}>
+                                            {onlineOnly
+                                                ? 'Only assigning to callers currently on shift'
+                                                : 'Including callers even if not on shift'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        <Chip
+                                            mode={onlineOnly ? 'flat' : 'outlined'}
+                                            selected={onlineOnly}
+                                            onPress={() => { setOnlineOnly(true); }}
+                                            style={{ backgroundColor: onlineOnly ? '#D1FAE5' : '#F9FAFB' }}
+                                            textStyle={{ color: onlineOnly ? '#065F46' : '#9CA3AF', fontSize: 11 }}
+                                        >Online</Chip>
+                                        <Chip
+                                            mode={!onlineOnly ? 'flat' : 'outlined'}
+                                            selected={!onlineOnly}
+                                            onPress={() => { setOnlineOnly(false); }}
+                                            style={{ backgroundColor: !onlineOnly ? '#DBEAFE' : '#F9FAFB' }}
+                                            textStyle={{ color: !onlineOnly ? '#1D4ED8' : '#9CA3AF', fontSize: 11 }}
+                                        >All Active</Chip>
+                                    </View>
+                                </View>
                                 <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '600' }}>
                                     {autoAssignPreview.totalUnassigned === 0
                                         ? '🎉 No unassigned leads — nothing to assign!'
