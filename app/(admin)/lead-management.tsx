@@ -1033,9 +1033,12 @@ export default function LeadManagementScreen() {
                                             </Pressable>
                                         )}
                                         {/* Lead row — hidden in revisit unless group is expanded */}
-                                        {isExpanded && (
+                                        {isExpanded && (() => {
+                                            const isDup = (lead.totalLeadCount ?? 1) > 1;
+                                            return (
                                             <View style={[
-                                                tbl.row, idx % 2 === 1 && tbl.rowAlt,
+                                                tbl.row, !isDup && idx % 2 === 1 && tbl.rowAlt,
+                                                isDup && { backgroundColor: '#FFFBEB' },
                                                 filter === 'revisit' && { borderLeftWidth: 3, borderLeftColor: '#C4B5FD' },
                                             ]}>
                                                 {/* Edit + History + Call buttons */}
@@ -1076,11 +1079,16 @@ export default function LeadManagementScreen() {
                                                     })()}
                                                 </View>
 
-                                                <View style={[tbl.cell, { width: 150 }]}>
+                                                <View style={[tbl.cell, { width: 150, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                                                     <Text style={tbl.nameText} numberOfLines={2}>{c(lead).name || '—'}</Text>
+                                                    {isDup && (
+                                                        <View style={{ backgroundColor: '#F59E0B', borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                                            <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>⚠ {lead.totalLeadCount}×</Text>
+                                                        </View>
+                                                    )}
                                                 </View>
                                                 <View style={[tbl.cell, { width: 135 }]}>
-                                                    <Text style={tbl.cellText}>{c(lead).phone || '—'}</Text>
+                                                    <Text style={[tbl.cellText, isDup && { color: '#D97706', fontWeight: '700' }]}>{c(lead).phone || '—'}</Text>
                                                 </View>
                                                 <View style={[tbl.cell, { width: 100 }]}>
                                                     <Text style={tbl.cellText}>{c(lead).city || '—'}</Text>
@@ -1184,7 +1192,8 @@ export default function LeadManagementScreen() {
                                                     )}
                                                 </View>
                                             </View>
-                                        )}
+                                            );
+                                        })()}
                                     </React.Fragment>
                                 );
                             })}
