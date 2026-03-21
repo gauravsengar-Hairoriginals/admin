@@ -16,6 +16,7 @@ const ALL_PERMISSIONS = [
     { key: 'MANAGE_REFERRALS', label: 'Manage Referrals', icon: 'cash-multiple' },
     { key: 'VIEW_FINANCIALS', label: 'View Financials', icon: 'chart-bar' },
     { key: 'MANAGE_FIELD_FORCE', label: 'Manage Field Force', icon: 'account-hard-hat' },
+    { key: 'VIEW_ORDERS', label: 'View Orders', icon: 'package-variant' },
 ];
 
 const FORM_EMPTY = { name: '', email: '', phone: '', password: '' };
