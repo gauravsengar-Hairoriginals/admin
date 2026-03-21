@@ -39,9 +39,9 @@ const callStyle = (val?: string) => CALL_OPTIONS.find(o => o.value === val) ?? {
 const LEAD_STATUS_OPTIONS = [
     { value: 'new', label: 'New', color: '#6366F1', bg: '#EEF2FF' },
     { value: 'contacted', label: 'Contacted', color: '#0369A1', bg: '#E0F2FE' },
-    { value: 'converted:Marked to EC', label: 'Conv (EC)', color: '#16A34A', bg: '#F0FDF4' },
-    { value: 'converted:Marked to HT', label: 'Conv (HT)', color: '#15803D', bg: '#DCFCE7' },
-    { value: 'converted:Marked to VC', label: 'Conv (VC)', color: '#166534', bg: '#BBF7D0' },
+    { value: 'converted:Marked to EC', label: 'Booked (EC)', color: '#16A34A', bg: '#F0FDF4' },
+    { value: 'converted:Marked to HT', label: 'Booked (HT)', color: '#15803D', bg: '#DCFCE7' },
+    { value: 'converted:Marked to VC', label: 'Booked (VC)', color: '#166534', bg: '#BBF7D0' },
     { value: 'dropped', label: 'Dropped', color: '#9CA3AF', bg: '#F3F4F6' },
 ];
 const leadStatusStyle = (val?: string) =>

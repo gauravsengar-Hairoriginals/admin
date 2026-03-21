@@ -78,12 +78,16 @@ export default function LeadsScreen() {
 
     // ─── Multi-select state ─────────────────────────────────────────
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+    // Global duplicate: backend returns totalLeadCount per lead via a subquery
+    const isDuplicate = (lead: any) => (lead.totalLeadCount ?? 1) > 1;
     const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
     const [bulkAssignLoading, setBulkAssignLoading] = useState(false);
 
     // ─── Auto-assign state ───────────────────────────────────────
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
     const [autoAssignConfirming, setAutoAssignConfirming] = useState(false);
+    const [autoAssignOptionsVisible, setAutoAssignOptionsVisible] = useState(false); // pre-flight options
     const [onlineOnly, setOnlineOnly] = useState(true); // true = on-shift callers only
     const [autoAssignPreview, setAutoAssignPreview] = useState<{
         totalUnassigned: number; willAssign: number; unroutable: number; callers: number;
@@ -345,7 +349,14 @@ export default function LeadsScreen() {
 
     // ─── CSV Export ────────────────────────────────────────────
     // ─── Auto-Assign: fetch preview (dry-run, no DB writes) ─────────────
-    const handleAutoAssign = async () => {
+    // ─── Auto-Assign: open options dialog first (avoid silent 400 if no one is on-shift) ───
+    const handleAutoAssign = () => {
+        setAutoAssignOptionsVisible(true);
+    };
+
+    // ─── Auto-Assign: fetch preview after user selects mode ───────────────────────────
+    const handleAutoAssignFetchPreview = async () => {
+        setAutoAssignOptionsVisible(false);
         setAutoAssignLoading(true);
         try {
             const res = await api.get('/leads/auto-assign/preview', {
@@ -353,7 +364,7 @@ export default function LeadsScreen() {
             });
             setAutoAssignPreview(res.data);
         } catch (err: any) {
-            Alert.alert('Error', err?.response?.data?.message || 'Preview failed.');
+            Alert.alert('Auto-Assign Error', err?.response?.data?.message || 'Preview failed.');
         } finally {
             setAutoAssignLoading(false);
         }
@@ -610,7 +621,15 @@ export default function LeadsScreen() {
                                 </View>
                             ) : (
                                 leads.map(lead => (
-                                    <DataTable.Row key={lead.id} style={[styles.tableRow, selectedIds.has(lead.id) && { backgroundColor: '#E3F2FD' }]}>
+                                    <DataTable.Row
+                                        key={lead.id}
+                                        style={[
+                                            styles.tableRow,
+                                            selectedIds.has(lead.id) && { backgroundColor: '#E3F2FD' },
+                                            // Amber highlight for globally duplicate customer (overrides selection colour)
+                                            isDuplicate(lead) && !selectedIds.has(lead.id) && { backgroundColor: '#FFFBEB' },
+                                        ]}
+                                    >
                                         <DataTable.Cell style={{ flex: 0.5 }}>
                                             <Checkbox
                                                 status={selectedIds.has(lead.id) ? 'checked' : 'unchecked'}
@@ -618,10 +637,31 @@ export default function LeadsScreen() {
                                             />
                                         </DataTable.Cell>
                                         <DataTable.Cell style={{ flex: 1.5 }}>
-                                            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>{getLeadName(lead)}</Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>{getLeadName(lead)}</Text>
+                                                {isDuplicate(lead) && (
+                                                    <View style={{
+                                                        backgroundColor: '#F59E0B',
+                                                        borderRadius: 10,
+                                                        paddingHorizontal: 5,
+                                                        paddingVertical: 1,
+                                                    }}>
+                                                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>
+                                                            {lead.totalLeadCount}x
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                            </View>
                                         </DataTable.Cell>
                                         <DataTable.Cell style={{ flex: 1.2 }}>
-                                            <Text variant="bodySmall">{lead.customer?.phone || '—'}</Text>
+                                            <Text
+                                                variant="bodySmall"
+                                                style={isDuplicate(lead)
+                                                    ? { color: '#D97706', fontWeight: '700' }
+                                                    : undefined}
+                                            >
+                                                {isDuplicate(lead) ? '⚠ ' : ''}{lead.customer?.phone || '—'}
+                                            </Text>
                                         </DataTable.Cell>
                                         <DataTable.Cell style={{ flex: 1.5 }}>
                                             <Text variant="bodySmall">{lead.customer?.city || '—'}</Text>
@@ -807,7 +847,83 @@ export default function LeadsScreen() {
                 </Modal>
             </Portal>
 
+            {/* ── Auto-Assign Options Dialog (pre-flight: choose mode before preview) ── */}
+            <Portal>
+                <Dialog visible={autoAssignOptionsVisible} onDismiss={() => setAutoAssignOptionsVisible(false)}>
+                    <Dialog.Title>⚙️ Auto-Assign Options</Dialog.Title>
+                    <Dialog.Content>
+                        <Text variant="bodySmall" style={{ color: '#6B7280', marginBottom: 16 }}>
+                            Choose which callers should receive leads in this batch assignment.
+                        </Text>
+                        {/* Mode selector */}
+                        <View style={{ gap: 10 }}>
+                            {/* Online only option */}
+                            <View
+                                style={{
+                                    flexDirection: 'row', alignItems: 'center',
+                                    padding: 14, borderRadius: 10, borderWidth: 2,
+                                    borderColor: onlineOnly ? '#059669' : '#E5E7EB',
+                                    backgroundColor: onlineOnly ? '#F0FDF4' : '#FAFAFA',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text variant="bodyMedium" style={{ fontWeight: '700', color: onlineOnly ? '#065F46' : '#374151' }}>
+                                        🟢 Online callers only
+                                    </Text>
+                                    <Text variant="bodySmall" style={{ color: '#9CA3AF', marginTop: 2 }}>
+                                        Only assign to callers who have started their shift
+                                    </Text>
+                                </View>
+                                <Checkbox
+                                    status={onlineOnly ? 'checked' : 'unchecked'}
+                                    onPress={() => setOnlineOnly(true)}
+                                    color="#059669"
+                                />
+                            </View>
+                            {/* All active option */}
+                            <View
+                                style={{
+                                    flexDirection: 'row', alignItems: 'center',
+                                    padding: 14, borderRadius: 10, borderWidth: 2,
+                                    borderColor: !onlineOnly ? '#1D4ED8' : '#E5E7EB',
+                                    backgroundColor: !onlineOnly ? '#EFF6FF' : '#FAFAFA',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text variant="bodyMedium" style={{ fontWeight: '700', color: !onlineOnly ? '#1D4ED8' : '#374151' }}>
+                                        🌐 All active callers
+                                    </Text>
+                                    <Text variant="bodySmall" style={{ color: '#9CA3AF', marginTop: 2 }}>
+                                        Include callers even if they haven't started a shift
+                                    </Text>
+                                </View>
+                                <Checkbox
+                                    status={!onlineOnly ? 'checked' : 'unchecked'}
+                                    onPress={() => setOnlineOnly(false)}
+                                    color="#1D4ED8"
+                                />
+                            </View>
+                        </View>
+                    </Dialog.Content>
+                    <Dialog.Actions>
+                        <Button onPress={() => setAutoAssignOptionsVisible(false)}>Cancel</Button>
+                        <Button
+                            mode="contained"
+                            buttonColor="#059669"
+                            loading={autoAssignLoading}
+                            disabled={autoAssignLoading}
+                            onPress={handleAutoAssignFetchPreview}
+                        >
+                            Preview Distribution
+                        </Button>
+                    </Dialog.Actions>
+                </Dialog>
+            </Portal>
+
             {/* ── Auto-Assign Preview Dialog (dry-run, no DB changes yet) ── */}
+
             <Portal>
                 <Dialog visible={!!autoAssignPreview} onDismiss={() => setAutoAssignPreview(null)}>
                     <Dialog.Title>🔍 Auto-Assign Preview</Dialog.Title>
@@ -1172,13 +1288,16 @@ export default function LeadsScreen() {
 // Status badge component
 function StatusChip({ status }: { status?: string }) {
     const map: Record<string, { label: string; color: string; bg: string }> = {
-        new: { label: 'New', color: '#1565C0', bg: '#E3F2FD' },
-        contacted: { label: 'Contacted', color: '#F57F17', bg: '#FFFDE7' },
-        follow_up: { label: 'Follow up', color: '#6A1B9A', bg: '#F3E5F5' },
-        converted: { label: 'Converted', color: '#2E7D32', bg: '#E8F5E9' },
-        not_interested: { label: 'Not interested', color: '#757575', bg: '#F5F5F5' },
+        new:                        { label: 'New',          color: '#1565C0', bg: '#E3F2FD' },
+        contacted:                  { label: 'Contacted',    color: '#F57F17', bg: '#FFFDE7' },
+        follow_up:                  { label: 'Follow up',    color: '#6A1B9A', bg: '#F3E5F5' },
+        'converted:Marked to EC':   { label: 'Booked (EC)', color: '#16A34A', bg: '#F0FDF4' },
+        'converted:Marked to HT':   { label: 'Booked (HT)', color: '#15803D', bg: '#DCFCE7' },
+        'converted:Marked to VC':   { label: 'Booked (VC)', color: '#166534', bg: '#BBF7D0' },
+        dropped:                    { label: 'Dropped',      color: '#9CA3AF', bg: '#F3F4F6' },
+        not_interested:             { label: 'Not interested', color: '#757575', bg: '#F5F5F5' },
     };
-    const s = map[status ?? 'new'] ?? map.new;
+    const s = map[status ?? 'new'] ?? { label: status ?? 'New', color: '#1565C0', bg: '#E3F2FD' };
     return (
         <Chip mode="flat" style={{ backgroundColor: s.bg }} textStyle={{ color: s.color, fontSize: 11 }}>
             {s.label}
