@@ -8,6 +8,8 @@ import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
 import AdminPageLayout from '../../components/AdminPageLayout';
 
+//asdas
+
 // ── Available permissions ────────────────────────────────────────────────────
 const ALL_PERMISSIONS = [
     { key: 'MANAGE_STYLISTS', label: 'Manage Stylists', icon: 'account-group' },
