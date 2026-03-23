@@ -574,6 +574,7 @@ export default function LeadManagementScreen() {
                     status: colFilters.status || undefined,
                     assignedTo: colFilters.assignedTo || undefined,
                     leadCategory: categoryFilter || undefined,
+                    deduplicateByPhone: true,
                 }
             });
             setLeads(res.data.leads ?? res.data ?? []);
