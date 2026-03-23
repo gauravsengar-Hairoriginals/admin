@@ -806,6 +806,26 @@ export default function LeadManagementScreen() {
                     <Button mode="outlined" icon="refresh" onPress={() => loadLeads(1, search)} compact>
                         Refresh
                     </Button>
+                    <Button
+                        mode="contained"
+                        icon="phone-sync"
+                        compact
+                        buttonColor="#7C3AED"
+                        textColor="#fff"
+                        style={{ borderRadius: 8 }}
+                        onPress={async () => {
+                            try {
+                                const res = await api.post('/leads/bulk-assign-qkonnect');
+                                const { assigned, skipped } = res.data;
+                                alert(`✅ Qkonnect Bulk Assign Done\n\nAssigned: ${assigned}\nSkipped (no call log or agent): ${skipped}`);
+                                loadLeads(1, search);
+                            } catch (e: any) {
+                                alert('❌ Failed: ' + (e?.response?.data?.message ?? e?.message));
+                            }
+                        }}
+                    >
+                        Assign IVR Leads
+                    </Button>
                 </View>
             </View>
 
