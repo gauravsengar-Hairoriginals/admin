@@ -482,6 +482,27 @@ export default function LeadsScreen() {
                             Clear All
                         </Button>
                     )}
+                    {(isSuperAdmin || user?.role === 'ADMIN') && (
+                        <Button
+                            mode="contained"
+                            icon="phone-sync"
+                            buttonColor="#7C3AED"
+                            textColor="#fff"
+                            style={{ marginLeft: 8 }}
+                            onPress={async () => {
+                                try {
+                                    const res = await api.post('/leads/bulk-assign-qkonnect');
+                                    const { assigned, skipped } = res.data;
+                                    alert(`✅ Qkonnect Bulk Assign Done\n\nAssigned: ${assigned}\nSkipped (no call log or agent): ${skipped}`);
+                                    fetchLeads(page);
+                                } catch (e: any) {
+                                    alert('❌ Failed: ' + (e?.response?.data?.message ?? e?.message));
+                                }
+                            }}
+                        >
+                            Assign IVR Leads
+                        </Button>
+                    )}
                 </View>
             </View>
 
