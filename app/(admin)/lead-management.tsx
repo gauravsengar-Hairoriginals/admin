@@ -1538,6 +1538,10 @@ export default function LeadManagementScreen() {
                                 onChange={v => {
                                     setEditForm((f: any) => {
                                         const upd: any = { ...f, call1: v };
+                                        // Mirror backend: first disposition → status new→contacted
+                                        if (v && f.status === 'new') {
+                                            upd.status = 'contacted';
+                                        }
                                         if (v === 'RNR/Disconnect/Busy') {
                                             const d = new Date(Date.now() + 60 * 60 * 1000);
                                             upd.nextActionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
