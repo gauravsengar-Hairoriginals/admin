@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import api, { setUnauthorizedHandler } from '../services/api';
-import { getToken, getUser, saveToken, saveUser, removeToken, removeUser } from '../services/storage';
+import { getToken, getUser, saveToken, saveUser, removeToken, removeUser, saveRefreshToken, removeRefreshToken } from '../services/storage';
 
 interface AuthContextType {
     user: any | null;
     isLoading: boolean;
-    signIn: (token: string, user: any) => Promise<void>;
+    signIn: (token: string, refreshToken: string, user: any) => Promise<void>;
     signOut: () => Promise<void>;
 }
 
@@ -61,14 +61,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [user, segments, isLoading]);
 
-    const signIn = async (token: string, userData: any) => {
+    const signIn = async (token: string, refreshToken: string, userData: any) => {
         await saveToken(token);
+        await saveRefreshToken(refreshToken);
         await saveUser(userData);
         setUser(userData);
     };
 
     const signOut = async () => {
         await removeToken();
+        await removeRefreshToken();
         await removeUser();
         setUser(null);
     };

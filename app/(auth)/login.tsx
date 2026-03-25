@@ -37,7 +37,7 @@ export default function LoginScreen() {
                 return;
             }
 
-            await signIn(accessToken, user);
+            await signIn(accessToken, refreshToken, user);
         } catch (err: any) {
             console.error(err);
             setError(err.response?.data?.message || 'Login failed. Please check credentials.');
