@@ -23,6 +23,7 @@ import { Colors } from '../../constants/Colors';
 import api from '../../services/api';
 import AdminPageLayout from '../../components/AdminPageLayout';
 import { useAuth } from '../../hooks/useAuth';
+import { useEcBooking } from '../../hooks/useEcBooking';
 
 // ── Call status options ───────────────────────────────────────────────────────
 const CALL_OPTIONS = [
@@ -539,6 +540,12 @@ export default function LeadManagementScreen() {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [callLogsLoading, setCallLogsLoading] = useState(false);
 
+    // ── EC Booking hook (DINGG) ───────────────────────────────────────────────
+    const booking = useEcBooking();
+
+    // ── Priority filter ───────────────────────────────────────────────────────
+    const [priorityFilter, setPriorityFilter] = useState(false);
+
     // ── History ───────────────────────────────────────────────────────────
     const [historyLead, setHistoryLead] = useState<any>(null);
     const [callLead, setCallLead] = useState<any>(null);
@@ -574,6 +581,7 @@ export default function LeadManagementScreen() {
                     status: colFilters.status || undefined,
                     assignedTo: colFilters.assignedTo || undefined,
                     leadCategory: categoryFilter || undefined,
+                    isHighPriority: priorityFilter ? 'true' : undefined,
                     deduplicateByPhone: true,
                 }
             });
@@ -585,7 +593,7 @@ export default function LeadManagementScreen() {
             setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, [search, filter, colFilters, categoryFilter]);
+    }, [search, filter, colFilters, categoryFilter, priorityFilter]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -593,7 +601,7 @@ export default function LeadManagementScreen() {
             loadLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, filter, search, categoryFilter]);
+    }, [colFilters, filter, search, categoryFilter, priorityFilter]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -632,6 +640,7 @@ export default function LeadManagementScreen() {
             pincode: lead.customer?.pincode ?? '',
             // Lead-record fields
             status: lead.status ?? '',
+            isHighPriority: lead.isHighPriority ?? false,
             call1: lead.call1 ?? '',
             call2: lead.call2 ?? '',
             call3: lead.call3 ?? '',
@@ -669,20 +678,24 @@ export default function LeadManagementScreen() {
             }
         }
 
+        // ── EC-specific: require DINGG booking selection ────────────────────
+        const isMarkedToEc = editForm.status === 'converted:Marked to EC';
+        if (isMarkedToEc && !booking.isValid) {
+            alert('Please select an Experience Centre and available time slot to book a DINGG appointment.');
+            return;
+        }
+
         setEditLoading(true);
         try {
-            // Enforce sequential using the *already-saved* lead as baseline:
-            // call2 requires call1 (saved OR just set); call3 requires call2 (saved OR just set)
             const raw: any = { ...editForm };
             const effectiveCall1 = raw.call1 || editTarget?.call1;
             const effectiveCall2 = raw.call2 || editTarget?.call2;
             if (!effectiveCall1) { raw.call2 = undefined; raw.call3 = undefined; }
             else if (!effectiveCall2) { raw.call3 = undefined; }
 
-            // Strip empty strings so backend validators don't reject them
             const payload: any = {};
             for (const key of Object.keys(raw)) {
-                if (key === 'products') continue; // handled separately below
+                if (key === 'products') continue;
                 const v = raw[key];
                 if (v === '' || v === null) continue;
                 if (Array.isArray(v) && v.length === 0) continue;
@@ -700,11 +713,27 @@ export default function LeadManagementScreen() {
 
             const res = await api.patch(`/leads/${editTarget.id}`, payload);
             setLeads(prev => prev.map(l => l.id === editTarget.id ? { ...l, ...res.data } : l));
+
+            // ── Fire DINGG booking after lead is saved ──────────────────────
+            const isMarkedToEc = editForm.status === 'converted:Marked to EC';
+            if (isMarkedToEc && booking.isValid) {
+                const customerId = editTarget?.customer?.id ?? editTarget?.customerId;
+                const bookResult = await booking.submitBooking(editTarget.id, customerId);
+                if (!bookResult.success) {
+                    alert(`Lead saved ✅\n\nDINGG booking warning: ${bookResult.message}\nPlease book manually in DINGG.`);
+                } else {
+                    alert(`Lead saved & appointment booked ✅\n${bookResult.message}`);
+                }
+                booking.reset();
+            }
+
             setEditTarget(null);
         } catch (err: any) {
             console.error('Save failed:', err?.response?.data ?? err);
+            alert('Failed to save lead. Please try again.');
+        } finally {
+            setEditLoading(false);
         }
-        finally { setEditLoading(false); }
     };
 
     const c = (lead: any) => lead?.customer ?? {};
@@ -720,11 +749,19 @@ export default function LeadManagementScreen() {
     ] as const;
 
     // Table display leads. (All filtering moved to backend)
-    const colFilteredLeads = leads;
+    // High-priority leads always float to the top
+    const colFilteredLeads = [...leads].sort((a: any, b: any) => {
+        if (b.isHighPriority && !a.isHighPriority) return 1;
+        if (a.isHighPriority && !b.isHighPriority) return -1;
+        return 0;
+    });
 
-    // Apply aging sort
+    // Apply aging sort (within each priority group)
     if (agingSort !== 'none') {
         colFilteredLeads.sort((a: any, b: any) => {
+            // Keep high-priority at top even during aging sort
+            if (b.isHighPriority && !a.isHighPriority) return 1;
+            if (a.isHighPriority && !b.isHighPriority) return -1;
             const aAge = a.createdAt ? Date.now() - new Date(a.createdAt).getTime() : 0;
             const bAge = b.createdAt ? Date.now() - new Date(b.createdAt).getTime() : 0;
             return agingSort === 'asc' ? aAge - bAge : bAge - aAge;
@@ -891,8 +928,8 @@ export default function LeadManagementScreen() {
                 );
             })()}
 
-            {/* ── Filter Tabs ── */}
-            <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 2, marginBottom: 12 }}>
+            {/* ── Filter Tabs + Priority Toggle ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingHorizontal: 2, marginBottom: 12 }}>
                 {FILTERS.map(f => (
                     <Pressable
                         key={f.key}
@@ -919,6 +956,28 @@ export default function LeadManagementScreen() {
                         </View>
                     </Pressable>
                 ))}
+
+                {/* ── 🔴 High Priority filter chip ── */}
+                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+                <Pressable
+                    onPress={() => setPriorityFilter(p => !p)}
+                    style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 6,
+                        paddingHorizontal: 14, paddingVertical: 7,
+                        borderRadius: 20, borderWidth: 2,
+                        borderColor: priorityFilter ? '#DC2626' : '#E5E7EB',
+                        backgroundColor: priorityFilter ? '#FEE2E2' : '#fff',
+                    }}
+                >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: priorityFilter ? '#DC2626' : '#6B7280' }}>
+                        🔴 High Priority
+                    </Text>
+                    {priorityFilter && (
+                        <View style={{ backgroundColor: '#DC2626', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff' }}>ON</Text>
+                        </View>
+                    )}
+                </Pressable>
             </View>
 
             {/* ── Table ── */}
@@ -1080,8 +1139,18 @@ export default function LeadManagementScreen() {
                                                     })()}
                                                 </View>
 
-                                                <View style={[tbl.cell, { width: 150, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                                                    <Text style={tbl.nameText} numberOfLines={2}>{c(lead).name || '—'}</Text>
+                                                <View style={[tbl.cell, { width: 150, flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }]}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
+                                                        {lead.isHighPriority && (
+                                                            <View style={{
+                                                                backgroundColor: '#FEE2E2', borderRadius: 6,
+                                                                paddingHorizontal: 4, paddingVertical: 1,
+                                                            }}>
+                                                                <Text style={{ fontSize: 9, fontWeight: '800', color: '#DC2626' }}>🔴 HIGH</Text>
+                                                            </View>
+                                                        )}
+                                                        <Text style={tbl.nameText} numberOfLines={2}>{c(lead).name || '—'}</Text>
+                                                    </View>
                                                     {isDup && (
                                                         <View style={{ backgroundColor: '#F59E0B', borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 }}>
                                                             <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>⚠ {lead.totalLeadCount}×</Text>
@@ -1626,7 +1695,42 @@ export default function LeadManagementScreen() {
                             </View>
                         </View>
 
-                        {/* ── Appointment & Preferred Salon ── */}
+                        {/* ── Priority ── */}
+                        <View style={[md.section, {
+                            borderWidth: 2,
+                            borderColor: editForm.isHighPriority ? '#DC2626' : '#E5E7EB',
+                            borderRadius: 12,
+                            backgroundColor: editForm.isHighPriority ? '#FFF5F5' : '#FAFAFA',
+                        }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <Text style={[md.sectionTitle, { color: editForm.isHighPriority ? '#DC2626' : '#374151' }]}>
+                                        {editForm.isHighPriority ? '🔴 High Priority' : '⚪ No Priority'}
+                                    </Text>
+                                    {editForm.isHighPriority && (
+                                        <View style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>Flagged</Text>
+                                        </View>
+                                    )}
+                                </View>
+                                <Pressable
+                                    onPress={() => setEditForm((f: any) => ({ ...f, isHighPriority: !f.isHighPriority }))}
+                                    style={{
+                                        paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+                                        backgroundColor: editForm.isHighPriority ? '#DC2626' : '#E5E7EB',
+                                    }}>
+                                    <Text style={{ color: editForm.isHighPriority ? '#fff' : '#374151', fontWeight: '700', fontSize: 13 }}>
+                                        {editForm.isHighPriority ? '🔴 Marked High Priority' : 'Mark as High Priority'}
+                                    </Text>
+                                </Pressable>
+                            </View>
+                            {editForm.isHighPriority && (
+                                <Text style={{ fontSize: 12, color: '#9B1C1C', marginTop: 8 }}>
+                                    This lead will be flagged with 🔴 and sorted to the top in the dashboard.
+                                </Text>
+                            )}
+                        </View>
+
                         <View style={md.section}>
                             <Text style={md.sectionTitle}>✅ Appointment & Preferred Salon</Text>
 
@@ -1649,33 +1753,6 @@ export default function LeadManagementScreen() {
                             <DatePickerInput label="Booked Date" value={editForm.bookedDate}
                                 onChange={v => setEditForm((f: any) => ({ ...f, bookedDate: v }))} />
 
-                            <Text style={[md.label, { marginTop: 6 }]}>Time Slot</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                                    {['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'].map(slot => (
-                                        <Pressable key={slot}
-                                            onPress={() => setEditForm((f: any) => ({ ...f, bookedTimeSlot: editForm.bookedTimeSlot === slot ? '' : slot }))}
-                                            style={[md.chip, { paddingHorizontal: 10, paddingVertical: 6 },
-                                            editForm.bookedTimeSlot === slot && { backgroundColor: '#EDE9FE', borderColor: '#7C3AED', borderWidth: 2 }]}>
-                                            <Text style={{ color: editForm.bookedTimeSlot === slot ? '#7C3AED' : Colors.text, fontSize: 11, fontWeight: editForm.bookedTimeSlot === slot ? '700' : '400' }}>{slot}</Text>
-                                        </Pressable>
-                                    ))}
-                                </View>
-                            </ScrollView>
-
-                            <Text style={[md.label, { marginTop: 6 }]}>Preferred Experience Center</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                                <View style={{ flexDirection: 'row', gap: 6 }}>
-                                    {experienceCenters.map(ec => (
-                                        <Pressable key={ec.id}
-                                            onPress={() => setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec.name }))}
-                                            style={[md.chip, editForm.preferredExperienceCenter === ec.name && { backgroundColor: '#EEF2FF', borderColor: '#4338CA', borderWidth: 2 }]}>
-                                            <Text style={{ color: editForm.preferredExperienceCenter === ec.name ? '#4338CA' : Colors.text, fontSize: 12 }}>{ec.name}</Text>
-                                        </Pressable>
-                                    ))}
-                                </View>
-                            </ScrollView>
-
                             <Text style={[md.label, { marginTop: 6 }]}>Consultation Type</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -1688,7 +1765,213 @@ export default function LeadManagementScreen() {
                                     ))}
                                 </View>
                             </ScrollView>
+
+                            {/* ── DINGG EC Booking (only when "Marked to EC") ── */}
+                            {editForm.status === 'converted:Marked to EC' && (() => {
+                                const dinggEcs = experienceCenters.filter((ec: any) => ec.dinggEnabled || ec.dinggVendorLocationUuid);
+                                const needsEcWarning = !booking.ecId;
+                                return (
+                                    <View style={{
+                                        marginTop: 8,
+                                        borderWidth: 2,
+                                        borderColor: booking.isValid ? '#059669' : '#7C3AED',
+                                        borderRadius: 12,
+                                        padding: 14,
+                                        backgroundColor: booking.isValid ? '#F0FDF4' : '#FAF5FF',
+                                    }}>
+                                        {/* Header */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                                            <Text style={{ fontSize: 15, fontWeight: '700', color: '#7C3AED' }}>
+                                                🏪 DINGG Appointment
+                                            </Text>
+                                            <View style={{
+                                                backgroundColor: booking.isValid ? '#D1FAE5' : '#EDE9FE',
+                                                borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+                                            }}>
+                                                <Text style={{ fontSize: 11, fontWeight: '700', color: booking.isValid ? '#065F46' : '#6D28D9' }}>
+                                                    {booking.isValid ? '✓ Ready to book' : 'Required'}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        {/* 1. EC selector (dingg-enabled only) */}
+                                        <Text style={[md.label, { color: '#7C3AED' }]}>1. Select Experience Centre *</Text>
+                                        {dinggEcs.length === 0 ? (
+                                            <Text style={{ color: '#DC2626', fontSize: 12, marginBottom: 12 }}>
+                                                ⚠️ No DINGG-connected ECs found. Configure DINGG credentials in Settings → Experience Centres.
+                                            </Text>
+                                        ) : (
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                                    {dinggEcs.map((ec: any) => {
+                                                        const selected = booking.ecId === ec.id;
+                                                        return (
+                                                            <Pressable key={ec.id}
+                                                                onPress={() => {
+                                                                    booking.setEcId(ec.id);
+                                                                    setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec.name }));
+                                                                }}
+                                                                style={[md.chip, {
+                                                                    paddingHorizontal: 14, paddingVertical: 8,
+                                                                    borderWidth: selected ? 2 : 1,
+                                                                    borderColor: selected ? '#7C3AED' : '#E5E7EB',
+                                                                    backgroundColor: selected ? '#EDE9FE' : '#FFF',
+                                                                }]}>
+                                                                <Text style={{ fontSize: 13, fontWeight: selected ? '700' : '500', color: selected ? '#6D28D9' : '#374151' }}>
+                                                                    {ec.name}
+                                                                </Text>
+                                                            </Pressable>
+                                                        );
+                                                    })}
+                                                </View>
+                                            </ScrollView>
+                                        )}
+
+                                        {/* 2. Service selector (fetched from DINGG) */}
+                                        {booking.ecId && (
+                                            <>
+                                                <Text style={[md.label, { color: '#7C3AED' }]}>2. Select Service</Text>
+                                                {booking.loadingServices ? (
+                                                    <ActivityIndicator size="small" color="#7C3AED" style={{ marginBottom: 14 }} />
+                                                ) : booking.services.length === 0 ? (
+                                                    <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 14 }}>
+                                                        No services found. Slots will still be shown.
+                                                    </Text>
+                                                ) : (
+                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                                                            {booking.services.map(svc => {
+                                                                const selected = booking.serviceId === svc.id;
+                                                                return (
+                                                                    <Pressable key={svc.id}
+                                                                        onPress={() => {
+                                                                            booking.setServiceId(svc.id);
+                                                                            booking.setServiceName(svc.name);
+                                                                        }}
+                                                                        style={[md.chip, {
+                                                                            paddingHorizontal: 12, paddingVertical: 8,
+                                                                            borderWidth: selected ? 2 : 1,
+                                                                            borderColor: selected ? '#7C3AED' : '#E5E7EB',
+                                                                            backgroundColor: selected ? '#EDE9FE' : '#FFF',
+                                                                            maxWidth: 200,
+                                                                        }]}>
+                                                                        <Text style={{ fontSize: 12, fontWeight: selected ? '700' : '400', color: selected ? '#6D28D9' : '#374151' }}>
+                                                                            {svc.name}
+                                                                        </Text>
+                                                                        <Text style={{ fontSize: 10, color: '#9CA3AF' }}>
+                                                                            {svc.duration}min · ₹{svc.price}
+                                                                        </Text>
+                                                                    </Pressable>
+                                                                );
+                                                            })}
+                                                        </View>
+                                                    </ScrollView>
+                                                )}
+
+                                                {/* 3. Date picker */}
+                                                <Text style={[md.label, { color: '#7C3AED' }]}>3. Booking Date</Text>
+                                                <DatePickerInput
+                                                    label="Appointment Date"
+                                                    value={booking.bookingDate}
+                                                    onChange={v => booking.setBookingDate(v)}
+                                                />
+
+                                                {/* 4. Available slots from DINGG */}
+                                                <Text style={[md.label, { color: '#7C3AED', marginTop: 10 }]}>
+                                                    4. Available Time Slots
+                                                    {booking.slot && (
+                                                        <Text style={{ color: '#059669', fontWeight: '700' }}>
+                                                            {' '}— {booking.slot.label} selected ✓
+                                                        </Text>
+                                                    )}
+                                                </Text>
+
+                                                {booking.loadingSlots ? (
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                                                        <ActivityIndicator size="small" color="#7C3AED" />
+                                                        <Text style={{ color: '#7C3AED', fontSize: 12 }}>Fetching available slots from DINGG…</Text>
+                                                    </View>
+                                                ) : booking.slots.length === 0 ? (
+                                                    <View style={{ padding: 12, backgroundColor: '#FEF2F2', borderRadius: 8, marginBottom: 14 }}>
+                                                        <Text style={{ color: '#B91C1C', fontSize: 12, textAlign: 'center' }}>
+                                                            No available slots for {booking.bookingDate}.{'\n'}Try a different date or service.
+                                                        </Text>
+                                                    </View>
+                                                ) : (
+                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                                        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'nowrap' }}>
+                                                            {booking.slots.map((s, idx) => {
+                                                                const selected = booking.slot?.startTime === s.startTime && booking.slot?.date === s.date;
+                                                                return (
+                                                                    <Pressable key={`${s.date}-${s.startTime}-${idx}`}
+                                                                        onPress={() => booking.setSlot(selected ? null : s)}
+                                                                        style={{
+                                                                            paddingHorizontal: 14, paddingVertical: 10,
+                                                                            borderRadius: 10, borderWidth: 2,
+                                                                            borderColor: selected ? '#059669' : '#7C3AED',
+                                                                            backgroundColor: selected ? '#D1FAE5' : '#EDE9FE',
+                                                                        }}>
+                                                                        <Text style={{ fontSize: 13, fontWeight: '700', color: selected ? '#065F46' : '#5B21B6' }}>
+                                                                            {s.label}
+                                                                        </Text>
+                                                                        {selected && <Text style={{ fontSize: 10, color: '#059669', textAlign: 'center' }}>✓</Text>}
+                                                                    </Pressable>
+                                                                );
+                                                            })}
+                                                        </View>
+                                                    </ScrollView>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {/* Validation summary */}
+                                        {!booking.isValid && booking.ecId && (
+                                            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', marginTop: 4 }}>
+                                                ⚠️ Select a time slot to proceed
+                                            </Text>
+                                        )}
+                                        {!booking.ecId && (
+                                            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600' }}>
+                                                ⚠️ Select an experience centre above
+                                            </Text>
+                                        )}
+                                    </View>
+                                );
+                            })()}
+
+                            {/* Non-EC: static time slot picker */}
+                            {editForm.status !== 'converted:Marked to EC' && (
+                                <>
+                                    <Text style={[md.label, { marginTop: 6 }]}>Time Slot</Text>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                                            {['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'].map(s => (
+                                                <Pressable key={s}
+                                                    onPress={() => setEditForm((f: any) => ({ ...f, bookedTimeSlot: editForm.bookedTimeSlot === s ? '' : s }))}
+                                                    style={[md.chip, { paddingHorizontal: 10, paddingVertical: 6 },
+                                                    editForm.bookedTimeSlot === s && { backgroundColor: '#EDE9FE', borderColor: '#7C3AED', borderWidth: 2 }]}>
+                                                    <Text style={{ color: editForm.bookedTimeSlot === s ? '#7C3AED' : Colors.text, fontSize: 11, fontWeight: editForm.bookedTimeSlot === s ? '700' : '400' }}>{s}</Text>
+                                                </Pressable>
+                                            ))}
+                                        </View>
+                                    </ScrollView>
+
+                                    <Text style={[md.label, { marginTop: 6 }]}>Preferred Experience Center</Text>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                                            {experienceCenters.map((ec: any) => (
+                                                <Pressable key={ec.id}
+                                                    onPress={() => setEditForm((f: any) => ({ ...f, preferredExperienceCenter: ec.name }))}
+                                                    style={[md.chip, editForm.preferredExperienceCenter === ec.name && { backgroundColor: '#EEF2FF', borderColor: '#4338CA', borderWidth: 2 }]}>
+                                                    <Text style={{ color: editForm.preferredExperienceCenter === ec.name ? '#4338CA' : Colors.text, fontSize: 12 }}>{ec.name}</Text>
+                                                </Pressable>
+                                            ))}
+                                        </View>
+                                    </ScrollView>
+                                </>
+                            )}
                         </View>
+
 
                         {/* ── Products & Remarks ── */}
                         <View style={md.section}>
