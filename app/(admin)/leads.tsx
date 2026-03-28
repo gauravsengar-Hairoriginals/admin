@@ -71,6 +71,7 @@ export default function LeadsScreen() {
 
     // ─── Category filter ────────────────────────────────────────────
     const [categoryFilter, setCategoryFilter] = useState('');
+    const [unassignedFilter, setUnassignedFilter] = useState(false);
 
     // ─── Export date range ──────────────────────────────────────────
     const [exportFrom, setExportFrom] = useState('');
@@ -114,6 +115,7 @@ export default function LeadsScreen() {
                     status: colFilters.status || undefined,
                     assignedTo: colFilters.assignedTo || undefined,
                     leadCategory: categoryFilter || undefined,
+                    isUnassigned: unassignedFilter ? 'true' : undefined,
                 },
             });
             setLeads(res.data.leads ?? []);
@@ -125,7 +127,7 @@ export default function LeadsScreen() {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [searchQuery, colFilters, categoryFilter]);
+    }, [searchQuery, colFilters, categoryFilter, unassignedFilter]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -133,7 +135,7 @@ export default function LeadsScreen() {
             fetchLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, searchQuery, categoryFilter]);
+    }, [colFilters, searchQuery, categoryFilter, unassignedFilter]);
 
     // Auto-refresh every 5 seconds
     useEffect(() => {
@@ -538,6 +540,25 @@ export default function LeadsScreen() {
                         })}
                         {categoryFilter && (
                             <Text style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 4 }}>{total} leads found</Text>
+                        )}
+                        {/* ── 🕵️‍♂️ Unassigned filter chip (Admins only) ── */}
+                        {user?.role !== 'lead_caller' && (
+                            <>
+                                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+                                <Chip
+                                    mode={unassignedFilter ? 'flat' : 'outlined'}
+                                    selected={unassignedFilter}
+                                    onPress={() => setUnassignedFilter(u => !u)}
+                                    style={{
+                                        backgroundColor: unassignedFilter ? '#FEF3C7' : '#fff',
+                                        borderColor: unassignedFilter ? 'transparent' : '#E5E7EB',
+                                        borderWidth: unassignedFilter ? 0 : 1,
+                                    }}
+                                    textStyle={{ color: unassignedFilter ? '#D97706' : '#6B7280', fontSize: 12, fontWeight: unassignedFilter ? '700' : '500' }}
+                                >
+                                    🕵️‍♂️ Unassigned
+                                </Chip>
+                            </>
                         )}
                     </View>
                 );

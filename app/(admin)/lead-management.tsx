@@ -79,6 +79,153 @@ const leadCategoryStyle = (cat?: string) => cat ? (LEAD_CATEGORY_STYLES[cat] ?? 
 // ── qkonnect Click-to-Call API ────────────────────────────────────────────────
 const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
 //const QKONNECT_API_KEY = '6340a658-13d3-11f1-bec8-6045bdaaffcb';
+// ── LeadSquared Import Modal ─────────────────────────────────────────────────
+function LSImportModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
+    const [file, setFile] = useState<File | null>(null);
+    const [targetStatus, setTargetStatus] = useState('new');
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
+    const [error, setError] = useState('');
+
+    const STATUS_OPTIONS = [
+        { value: 'new', label: 'New' },
+        { value: 'contacted', label: 'Contacted' },
+        { value: 'converted:Marked to EC', label: 'Booked (EC)' },
+        { value: 'converted:Marked to HT', label: 'Booked (HT)' },
+        { value: 'converted:Marked to VC', label: 'Booked (VC)' },
+        { value: 'dropped', label: 'Dropped' },
+    ];
+
+    const handleImport = async () => {
+        if (!file) { setError('Please select a file.'); return; }
+        setLoading(true);
+        setError('');
+        setResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('targetStatus', targetStatus);
+            const res = await api.post('/leads/import/leadsquared', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            setResult(res.data);
+            onDone();
+        } catch (e: any) {
+            setError(e?.response?.data?.message ?? 'Import failed. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleClose = () => {
+        setFile(null);
+        setResult(null);
+        setError('');
+        setLoading(false);
+        onClose();
+    };
+
+    return (
+        <Portal>
+            <Modal
+                visible={visible}
+                onDismiss={handleClose}
+                contentContainerStyle={{
+                    backgroundColor: '#fff', borderRadius: 16, padding: 28,
+                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 480, width: '100%',
+                    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+                }}
+            >
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 4 }}>📥 Import LeadSquared Leads</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Upload an Excel/CSV export from LeadSquared. Leads will be matched by phone number and updated or created accordingly.</Text>
+
+                {/* File picker */}
+                <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>1. Select File (.xlsx / .xls / .csv)</Text>
+                    <View style={{ borderWidth: 1.5, borderColor: file ? '#4F46E5' : '#E5E7EB', borderRadius: 10, borderStyle: 'dashed', padding: 14, alignItems: 'center', backgroundColor: '#F9FAFB' }}>
+                        {/* @ts-ignore */}
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            onChange={(e: any) => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(''); }}
+                            style={{ fontSize: 13, color: '#374151', cursor: 'pointer', width: '100%' }}
+                        />
+                        {file && <Text style={{ fontSize: 12, color: '#4F46E5', marginTop: 6, fontWeight: '600' }}>✅ {file.name}</Text>}
+                    </View>
+                </View>
+
+                {/* Status selector */}
+                <View style={{ marginBottom: 20 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>2. Set Status for All Imported Leads</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {STATUS_OPTIONS.map(opt => (
+                            <Pressable
+                                key={opt.value}
+                                onPress={() => setTargetStatus(opt.value)}
+                                style={{
+                                    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                                    borderWidth: 1.5,
+                                    borderColor: targetStatus === opt.value ? '#4F46E5' : '#E5E7EB',
+                                    backgroundColor: targetStatus === opt.value ? '#EEF2FF' : '#fff',
+                                }}
+                            >
+                                <Text style={{ fontSize: 13, fontWeight: targetStatus === opt.value ? '700' : '500', color: targetStatus === opt.value ? '#4F46E5' : '#6B7280' }}>
+                                    {opt.label}
+                                </Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Error */}
+                {!!error && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>}
+
+                {/* Result summary */}
+                {result && (
+                    <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 14, marginBottom: 16, gap: 4 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#15803D', marginBottom: 4 }}>✅ Import Complete</Text>
+                        <Text style={{ fontSize: 13, color: '#166534' }}>🆕 Created: <Text style={{ fontWeight: '700' }}>{result.created}</Text></Text>
+                        <Text style={{ fontSize: 13, color: '#166534' }}>♻️ Updated: <Text style={{ fontWeight: '700' }}>{result.updated}</Text></Text>
+                        <Text style={{ fontSize: 13, color: '#92400E' }}>⏭️ Skipped: <Text style={{ fontWeight: '700' }}>{result.skipped}</Text></Text>
+                        {result.errors.length > 0 && (
+                            <View style={{ marginTop: 8 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B91C1C', marginBottom: 4 }}>⚠️ Row Errors ({result.errors.length}):</Text>
+                                <ScrollView style={{ maxHeight: 120 }}>
+                                    {result.errors.map((e, idx) => (
+                                        <Text key={idx} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</Text>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                {/* Buttons */}
+                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+                    <Button mode="outlined" onPress={handleClose} disabled={loading}>Cancel</Button>
+                    {!result && (
+                        <Button
+                            mode="contained"
+                            buttonColor="#4F46E5"
+                            textColor="#fff"
+                            onPress={handleImport}
+                            loading={loading}
+                            disabled={loading || !file}
+                            style={{ borderRadius: 8 }}
+                        >
+                            {loading ? 'Importing...' : 'Import Leads'}
+                        </Button>
+                    )}
+                    {result && (
+                        <Button mode="contained" buttonColor="#15803D" textColor="#fff" onPress={handleClose} style={{ borderRadius: 8 }}>Done</Button>
+                    )}
+                </View>
+            </Modal>
+        </Portal>
+    );
+}
+
 
 function CallConfirmModal({
     lead, agentPhone, onClose,
@@ -528,6 +675,8 @@ export default function LeadManagementScreen() {
     // ── Per-column filters ────────────────────────────────────────────────
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
     const [categoryFilter, setCategoryFilter] = useState('');
+    const [priorityFilter, setPriorityFilter] = useState(false);
+    const [unassignedFilter, setUnassignedFilter] = useState(false);
     const [agingSort, setAgingSort] = useState<'none' | 'asc' | 'desc'>('none');
     const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
     const [exportFrom, setExportFrom] = useState('');
@@ -544,7 +693,9 @@ export default function LeadManagementScreen() {
     const booking = useEcBooking();
 
     // ── Priority filter ───────────────────────────────────────────────────────
-    const [priorityFilter, setPriorityFilter] = useState(false);
+
+    // ── LS Import modal ───────────────────────────────────────────────────────
+    const [lsImportVisible, setLsImportVisible] = useState(false);
 
     // ── History ───────────────────────────────────────────────────────────
     const [historyLead, setHistoryLead] = useState<any>(null);
@@ -582,6 +733,7 @@ export default function LeadManagementScreen() {
                     assignedTo: colFilters.assignedTo || undefined,
                     leadCategory: categoryFilter || undefined,
                     isHighPriority: priorityFilter ? 'true' : undefined,
+                    isUnassigned: unassignedFilter ? 'true' : undefined,
                     deduplicateByPhone: true,
                 }
             });
@@ -593,7 +745,7 @@ export default function LeadManagementScreen() {
             setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, [search, filter, colFilters, categoryFilter, priorityFilter]);
+    }, [search, filter, colFilters, categoryFilter, priorityFilter, unassignedFilter]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -601,7 +753,7 @@ export default function LeadManagementScreen() {
             loadLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, filter, search, categoryFilter, priorityFilter]);
+    }, [colFilters, filter, search, categoryFilter, priorityFilter, unassignedFilter]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -889,6 +1041,17 @@ export default function LeadManagementScreen() {
                         Clear dates
                     </Button>
                 )}
+                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+                <Button
+                    mode="outlined"
+                    icon="file-upload"
+                    onPress={() => setLsImportVisible(true)}
+                    compact
+                    style={{ borderRadius: 8, borderColor: '#6366F1' }}
+                    textColor="#6366F1"
+                >
+                    Import LS Leads
+                </Button>
             </View>
 
             {/* ── Category filter chips ── */}
@@ -978,6 +1141,32 @@ export default function LeadManagementScreen() {
                         </View>
                     )}
                 </Pressable>
+
+                {/* ── 🕵️‍♂️ Unassigned filter chip (Admins only) ── */}
+                {user?.role !== 'lead_caller' && (
+                    <>
+                        <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+                        <Pressable
+                            onPress={() => setUnassignedFilter(u => !u)}
+                            style={{
+                                flexDirection: 'row', alignItems: 'center', gap: 6,
+                                paddingHorizontal: 14, paddingVertical: 7,
+                                borderRadius: 20, borderWidth: 2,
+                                borderColor: unassignedFilter ? '#D97706' : '#E5E7EB',
+                                backgroundColor: unassignedFilter ? '#FEF3C7' : '#fff',
+                            }}
+                        >
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: unassignedFilter ? '#D97706' : '#6B7280' }}>
+                                🕵️‍♂️ Unassigned
+                            </Text>
+                            {unassignedFilter && (
+                                <View style={{ backgroundColor: '#D97706', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+                                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff' }}>ON</Text>
+                                </View>
+                            )}
+                        </Pressable>
+                    </>
+                )}
             </View>
 
             {/* ── Table ── */}
@@ -2163,6 +2352,13 @@ export default function LeadManagementScreen() {
                     />
                 )
             }
+
+            {/* ── LeadSquared Import Modal ── */}
+            <LSImportModal
+                visible={lsImportVisible}
+                onClose={() => setLsImportVisible(false)}
+                onDone={() => { loadLeads(1); }}
+            />
         </AdminPageLayout >
     );
 }
