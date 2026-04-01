@@ -10,10 +10,11 @@ export default function FieldForceScreen() {
     const [loading, setLoading] = useState(true);
     const [createModalVisible, setCreateModalVisible] = useState(false);
     const [assignModalVisible, setAssignModalVisible] = useState(false);
+    const [assignCitiesModalVisible, setAssignCitiesModalVisible] = useState(false);
     const [selectedAgent, setSelectedAgent] = useState(null);
 
     // Form State
-    const [newAgent, setNewAgent] = useState({ name: '', email: '', phone: '', password: '' });
+    const [newAgent, setNewAgent] = useState({ name: '', email: '', phone: '', password: '', channelierEmployeeId: '' });
 
     const fetchAgents = async () => {
         try {
@@ -34,7 +35,7 @@ export default function FieldForceScreen() {
         try {
             await api.post('/users/field-force', newAgent);
             setCreateModalVisible(false);
-            setNewAgent({ name: '', email: '', phone: '', password: '' });
+            setNewAgent({ name: '', email: '', phone: '', password: '', channelierEmployeeId: '' });
             fetchAgents();
         } catch (error) {
             console.error('Error creating agent:', error);
@@ -114,6 +115,51 @@ export default function FieldForceScreen() {
         fetchAssignedSalons(agent.id);
     };
 
+    // ── Cities & Employee ID Assignment Logic ──────────────────────────────────────────
+    const [cityInput, setCityInput] = useState('');
+    const [selectedCities, setSelectedCities] = useState([]);
+    const [editEmployeeId, setEditEmployeeId] = useState('');
+    const [assignCitiesLoading, setAssignCitiesLoading] = useState(false);
+
+    const openAssignCitiesModal = (agent) => {
+        setSelectedAgent(agent);
+        setSelectedCities(agent.deployedCities || []);
+        setEditEmployeeId(agent.channelierEmployeeId || '');
+        setCityInput('');
+        setAssignCitiesModalVisible(true);
+    };
+
+    const handleAddCity = () => {
+        const c = cityInput.trim();
+        if (c && !selectedCities.includes(c)) {
+            setSelectedCities([...selectedCities, c]);
+        }
+        setCityInput('');
+    };
+
+    const handleRemoveCity = (city) => {
+        setSelectedCities(selectedCities.filter(c => c !== city));
+    };
+
+    const handleSaveCities = async () => {
+        if (!selectedAgent) return;
+        setAssignCitiesLoading(true);
+        try {
+            await api.patch(`/users/field-force/${selectedAgent.id}/details`, { 
+                cities: selectedCities,
+                channelierEmployeeId: editEmployeeId.trim() || undefined
+            });
+            setAssignCitiesModalVisible(false);
+            fetchAgents();
+            alert('Cities updated successfully');
+        } catch (error) {
+            console.error(error);
+            alert('Failed to update cities');
+        } finally {
+            setAssignCitiesLoading(false);
+        }
+    };
+
     return (
         <AdminPageLayout>
             <View style={{ marginBottom: 20 }}>
@@ -124,6 +170,8 @@ export default function FieldForceScreen() {
                     <DataTable.Header>
                         <DataTable.Title>Name</DataTable.Title>
                         <DataTable.Title>Phone</DataTable.Title>
+                        <DataTable.Title>E-ID</DataTable.Title>
+                        <DataTable.Title style={{ flex: 1.5 }}>Cities</DataTable.Title>
                         <DataTable.Title numeric>Salons</DataTable.Title>
                         <DataTable.Title numeric>Actions</DataTable.Title>
                     </DataTable.Header>
@@ -132,9 +180,19 @@ export default function FieldForceScreen() {
                         <DataTable.Row key={agent.id}>
                             <DataTable.Cell>{agent.name}</DataTable.Cell>
                             <DataTable.Cell>{agent.phone}</DataTable.Cell>
+                            <DataTable.Cell>{agent.channelierEmployeeId || '--'}</DataTable.Cell>
+                            <DataTable.Cell style={{ flex: 1.5 }}>
+                                {agent.deployedCities && agent.deployedCities.length > 0 
+                                    ? agent.deployedCities.join(', ')
+                                    : <Text style={{ color: 'gray', fontStyle: 'italic' }}>None</Text>
+                                }
+                            </DataTable.Cell>
                             <DataTable.Cell numeric>{agent.assignedSalonsCount || 0}</DataTable.Cell>
                             <DataTable.Cell numeric>
-                                <IconButton icon="map-marker-plus" onPress={() => openAssignModal(agent)} />
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <IconButton icon="city" size={20} onPress={() => openAssignCitiesModal(agent)} />
+                                    <IconButton icon="map-marker-plus" size={20} onPress={() => openAssignModal(agent)} />
+                                </View>
                             </DataTable.Cell>
                         </DataTable.Row>
                     ))}
@@ -169,6 +227,12 @@ export default function FieldForceScreen() {
                         onChangeText={(text) => setNewAgent({ ...newAgent, password: text })}
                         style={styles.input}
                         secureTextEntry
+                    />
+                    <TextInput
+                        label="Channelier Employee ID (Optional)"
+                        value={newAgent.channelierEmployeeId}
+                        onChangeText={(text) => setNewAgent({ ...newAgent, channelierEmployeeId: text })}
+                        style={styles.input}
                     />
                     <Button mode="contained" onPress={handleCreateAgent} style={styles.button}>
                         Create Agent
@@ -224,6 +288,55 @@ export default function FieldForceScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
                         <Button onPress={() => setAssignModalVisible(false)}>Cancel</Button>
                         <Button mode="contained" onPress={handleAssignSalons} loading={assignLoading}>Save Assignments</Button>
+                    </View>
+                </Modal>
+
+                <Modal visible={assignCitiesModalVisible} onDismiss={() => setAssignCitiesModalVisible(false)} contentContainerStyle={styles.modal}>
+                    <Text style={styles.modalTitle}>Manage Details & Cities</Text>
+                    <Text style={{ marginBottom: 12, color: 'gray' }}>For {selectedAgent?.name}</Text>
+                    
+                    <TextInput
+                        label="Channelier Employee ID"
+                        value={editEmployeeId}
+                        onChangeText={setEditEmployeeId}
+                        style={styles.input}
+                        placeholder="ID from Channelier CRM"
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                        <TextInput
+                            label="Add City"
+                            value={cityInput}
+                            onChangeText={setCityInput}
+                            style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                            dense
+                            onSubmitEditing={handleAddCity}
+                        />
+                        <Button mode="contained" onPress={handleAddCity} style={{ alignSelf: 'center' }}>Add</Button>
+                    </View>
+                    
+                    <View style={{ marginBottom: 24 }}>
+                        <Text style={{ fontWeight: 'bold', marginBottom: 8 }}>Deployed Cities ({selectedCities.length})</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {selectedCities.length === 0 ? (
+                                <Text style={{ color: 'gray', fontStyle: 'italic' }}>No cities assigned</Text>
+                            ) : (
+                                selectedCities.map((city, idx) => (
+                                    <Chip 
+                                        key={idx} 
+                                        onClose={() => handleRemoveCity(city)}
+                                        style={{ backgroundColor: '#DBEAFE' }}
+                                    >
+                                        {city}
+                                    </Chip>
+                                ))
+                            )}
+                        </View>
+                    </View>
+                    
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                        <Button onPress={() => setAssignCitiesModalVisible(false)}>Cancel</Button>
+                        <Button mode="contained" onPress={handleSaveCities} loading={assignCitiesLoading}>Save Cities</Button>
                     </View>
                 </Modal>
             </Portal>

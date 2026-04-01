@@ -32,6 +32,14 @@ interface ExperienceCenter {
     dinggEnabled: boolean;
 }
 
+interface ECStylist {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    isActive: boolean;
+}
+
 interface FormState {
     name: string;
     type: string;
@@ -77,6 +85,14 @@ export default function ExperienceCentersScreen() {
     const [showAccessCode, setShowAccessCode] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
 
+    // ── Stylists state ──────────────────────────────────────────────────
+    const [stylists, setStylists] = useState<ECStylist[]>([]);
+    const [stylistsLoading, setStylistsLoading] = useState(false);
+    const [newStylistPhone, setNewStylistPhone] = useState('');
+    const [newStylistName, setNewStylistName] = useState('');
+    const [addingStylist, setAddingStylist] = useState(false);
+    const [removingStylistId, setRemovingStylistId] = useState<string | null>(null);
+
     useEffect(() => { if (user) loadEcs(); }, [user]);
 
     const loadEcs = async () => {
@@ -88,6 +104,49 @@ export default function ExperienceCentersScreen() {
             Alert.alert('Error', 'Failed to load experience centers');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadStylists = async (ecId: string) => {
+        setStylistsLoading(true);
+        try {
+            const res = await api.get(`/admin/experience-centers/${ecId}/stylists`);
+            setStylists(res.data ?? []);
+        } catch {
+            setStylists([]);
+        } finally {
+            setStylistsLoading(false);
+        }
+    };
+
+    const handleAddStylist = async () => {
+        if (!newStylistPhone.trim() || !editingEc) return;
+        setAddingStylist(true);
+        try {
+            const res = await api.post(`/admin/experience-centers/${editingEc.id}/stylists`, {
+                phone: newStylistPhone.trim(),
+                name: newStylistName.trim() || undefined,
+            });
+            setStylists(res.data ?? []);
+            setNewStylistPhone('');
+            setNewStylistName('');
+        } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.message || 'Failed to add stylist');
+        } finally {
+            setAddingStylist(false);
+        }
+    };
+
+    const handleRemoveStylist = async (stylistId: string) => {
+        if (!editingEc) return;
+        setRemovingStylistId(stylistId);
+        try {
+            const res = await api.delete(`/admin/experience-centers/${editingEc.id}/stylists/${stylistId}`);
+            setStylists(res.data ?? []);
+        } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.message || 'Failed to remove stylist');
+        } finally {
+            setRemovingStylistId(null);
         }
     };
 
@@ -178,7 +237,11 @@ export default function ExperienceCentersScreen() {
         });
         setShowAccessCode(false);
         setShowApiKey(false);
+        setNewStylistPhone('');
+        setNewStylistName('');
+        setStylists([]);
         setModalVisible(true);
+        loadStylists(ec.id);
     };
 
     const dinggStatus = (ec: ExperienceCenter) => {
@@ -494,6 +557,98 @@ export default function ExperienceCentersScreen() {
                             </View>
                         )}
 
+                        {/* ── Stylists Section (edit mode only) ──────────── */}
+                        {editingEc && (
+                            <>
+                                <Divider style={{ marginVertical: 20 }} />
+                                <View style={styles.dinggSectionHeader}>
+                                    <MaterialCommunityIcons name="account-group" size={18} color="#0891B2" />
+                                    <Text style={[styles.sectionHeading, { color: '#0891B2', marginBottom: 0, marginLeft: 8 }]}>
+                                        Stylists in this EC
+                                    </Text>
+                                </View>
+
+                                {/* Existing stylists list */}
+                                {stylistsLoading ? (
+                                    <ActivityIndicator style={{ marginVertical: 8 }} />
+                                ) : stylists.length === 0 ? (
+                                    <Text style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 12 }}>No stylists assigned yet.</Text>
+                                ) : (
+                                    <View style={{ marginBottom: 12 }}>
+                                        {stylists.map((s) => (
+                                            <View key={s.id} style={styles.stylistRow}>
+                                                <View style={styles.stylistAvatar}>
+                                                    <Text style={styles.stylistAvatarText}>
+                                                        {s.name.charAt(0).toUpperCase()}
+                                                    </Text>
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.stylistName}>{s.name}</Text>
+                                                    <Text style={styles.stylistPhone}>{s.phone}</Text>
+                                                </View>
+                                                <Chip
+                                                    mode="outlined"
+                                                    style={[styles.stylistStatusChip, { borderColor: s.isActive ? '#10B981' : '#D1D5DB' }]}
+                                                    textStyle={{ fontSize: 10, color: s.isActive ? '#059669' : '#9CA3AF' }}
+                                                >
+                                                    {s.isActive ? 'Active' : 'Inactive'}
+                                                </Chip>
+                                                <IconButton
+                                                    icon="close-circle"
+                                                    size={18}
+                                                    iconColor="#EF4444"
+                                                    disabled={removingStylistId === s.id}
+                                                    onPress={() =>
+                                                        Alert.alert(
+                                                            'Remove Stylist',
+                                                            `Remove ${s.name} from this EC?`,
+                                                            [
+                                                                { text: 'Cancel', style: 'cancel' },
+                                                                { text: 'Remove', style: 'destructive', onPress: () => handleRemoveStylist(s.id) },
+                                                            ]
+                                                        )
+                                                    }
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+
+                                {/* Add new stylist */}
+                                <Text style={[styles.label, { marginTop: 4 }]}>Add Stylist by Phone</Text>
+                                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                                    <TextInput
+                                        value={newStylistPhone}
+                                        onChangeText={setNewStylistPhone}
+                                        mode="outlined"
+                                        placeholder="Phone number"
+                                        keyboardType="phone-pad"
+                                        style={{ flex: 1.2, backgroundColor: '#fff', marginBottom: 0 }}
+                                        dense
+                                    />
+                                    <TextInput
+                                        value={newStylistName}
+                                        onChangeText={setNewStylistName}
+                                        mode="outlined"
+                                        placeholder="Name (optional)"
+                                        style={{ flex: 1, backgroundColor: '#fff', marginBottom: 0 }}
+                                        dense
+                                    />
+                                    <Button
+                                        mode="contained"
+                                        onPress={handleAddStylist}
+                                        loading={addingStylist}
+                                        disabled={addingStylist || !newStylistPhone.trim()}
+                                        style={{ backgroundColor: '#0891B2', alignSelf: 'center' }}
+                                        compact
+                                    >
+                                        Add
+                                    </Button>
+                                </View>
+                                <Text style={styles.dinggHint}>If the phone doesn't exist in the system, a new stylist account will be created automatically.</Text>
+                            </>
+                        )}
+
                         {/* Actions */}
                         <View style={styles.modalActions}>
                             <Button mode="text" onPress={() => setModalVisible(false)} disabled={saving}>
@@ -592,4 +747,19 @@ const styles = StyleSheet.create({
     statusText: { fontSize: 13, fontWeight: '500', flex: 1 },
 
     modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
+
+    // Stylist rows
+    stylistRow: {
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        paddingVertical: 8, paddingHorizontal: 4,
+        borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+    },
+    stylistAvatar: {
+        width: 32, height: 32, borderRadius: 16,
+        backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center',
+    },
+    stylistAvatarText: { fontSize: 14, fontWeight: '700', color: '#1D4ED8' },
+    stylistName: { fontSize: 13, fontWeight: '600', color: '#111827' },
+    stylistPhone: { fontSize: 11, color: '#6B7280' },
+    stylistStatusChip: { height: 24 },
 });

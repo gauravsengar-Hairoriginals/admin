@@ -665,6 +665,7 @@ export default function LeadManagementScreen() {
     const [filter, setFilter] = useState<'all' | 'fresh' | 'reminder' | 'revisit' | 'converted' | 'dropped'>('all');
     const [products, setProducts] = useState<{ id: string; title: string; options: { name: string; values: string[] }[] }[]>([]);
     const [experienceCenters, setExperienceCenters] = useState<any[]>([]);
+    const [fieldAgents, setFieldAgents] = useState<any[]>([]);
 
     // ── Pagination & API counts ──────────────────────────────────────────
     const LIMIT = 20;
@@ -766,6 +767,11 @@ export default function LeadManagementScreen() {
             .then(res => {
                 setExperienceCenters(res.data.filter((ec: any) => ec.isActive));
             }).catch(() => { });
+
+        api.get('/users/field-force')
+            .then(res => {
+                setFieldAgents(res.data);
+            }).catch(() => { });
     }, []);
 
     const openEdit = (lead: any) => {
@@ -804,6 +810,10 @@ export default function LeadManagementScreen() {
             preferredExperienceCenter: lead.preferredExperienceCenter ?? '',
             consultationType: lead.consultationType ?? '',
             products: formProducts,
+            // HT-specific
+            htCity: lead.htCity ?? '',
+            htAgentId: lead.htAgentId ?? '',
+            htScheduledTime: lead.htScheduledTime ?? '',
         });
     };
 
@@ -830,11 +840,24 @@ export default function LeadManagementScreen() {
             }
         }
 
+        // Validate: HT requires city, agent, and time
+        const isMarkedToHt = editForm.status === 'converted:Marked to HT';
+        if (isMarkedToHt) {
+            const validHTAgents = fieldAgents.filter((a: any) => a.channelierEmployeeId);
+            if (validHTAgents.length > 0 && (!editForm.htCity || !editForm.htAgentId || !editForm.bookedDate || !editForm.bookedTimeSlot || !editForm.consultationType)) {
+                alert('Please select City, Field Agent, and complete the Appointment Booked section (Date, Time, Consultation Type) to assign to Home Trial.');
+                return;
+            }
+        }
+
         // ── EC-specific: require DINGG booking selection ────────────────────
         const isMarkedToEc = editForm.status === 'converted:Marked to EC';
-        if (isMarkedToEc && !booking.isValid) {
-            alert('Please select an Experience Centre and available time slot to book a DINGG appointment.');
-            return;
+        if (isMarkedToEc) {
+            const dinggEcs = experienceCenters.filter((ec: any) => ec.dinggEnabled || ec.dinggVendorLocationUuid);
+            if (dinggEcs.length > 0 && !booking.isValid) {
+                alert('Please select an Experience Centre and available time slot to book a DINGG appointment.');
+                return;
+            }
         }
 
         setEditLoading(true);
@@ -2119,9 +2142,132 @@ export default function LeadManagementScreen() {
                                                 ⚠️ Select a time slot to proceed
                                             </Text>
                                         )}
-                                        {!booking.ecId && (
+                                        {!booking.ecId && dinggEcs.length > 0 && (
                                             <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600' }}>
                                                 ⚠️ Select an experience centre above
+                                            </Text>
+                                        )}
+                                        {dinggEcs.length === 0 && (
+                                            <Text style={{ color: '#059669', fontSize: 12, fontWeight: '600', marginTop: 12 }}>
+                                                ✓ You can save this lead (DINGG Booking will be skipped).
+                                            </Text>
+                                        )}
+                                    </View>
+                                );
+                            })()}
+
+                            {/* ── Home Trial (HT) Assignment ── */}
+                            {editForm.status === 'converted:Marked to HT' && (() => {
+                                // Extract unique cities from fieldAgents that have a channelierEmployeeId
+                                const validAgents = fieldAgents.filter(a => a.channelierEmployeeId);
+                                const availableCities = Array.from(new Set(validAgents.flatMap(a => a.deployedCities || []))).sort();
+                                
+                                const selectedCity = editForm.htCity;
+                                // Filter agents deployed in the selected city
+                                const cityAgents = selectedCity ? validAgents.filter(a => (a.deployedCities || []).includes(selectedCity)) : [];
+                                
+                                const isValid = !!(editForm.htCity && editForm.htAgentId && editForm.bookedDate && editForm.bookedTimeSlot && editForm.consultationType);
+
+                                return (
+                                    <View style={{
+                                        marginTop: 8,
+                                        borderWidth: 2,
+                                        borderColor: isValid ? '#059669' : '#EA580C',
+                                        borderRadius: 12,
+                                        padding: 14,
+                                        backgroundColor: isValid ? '#F0FDF4' : '#FFF7ED',
+                                    }}>
+                                        {/* Header */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                                            <Text style={{ fontSize: 15, fontWeight: '700', color: '#EA580C' }}>
+                                                🏠 Home Trial Assignment
+                                            </Text>
+                                            <View style={{
+                                                backgroundColor: isValid ? '#D1FAE5' : '#FFEDD5',
+                                                borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+                                            }}>
+                                                <Text style={{ fontSize: 11, fontWeight: '700', color: isValid ? '#065F46' : '#C2410C' }}>
+                                                    {isValid ? '✓ Ready to sync' : 'Required'}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        {/* 1. City selector */}
+                                        <Text style={[md.label, { color: '#EA580C' }]}>1. Select City</Text>
+                                        {availableCities.length === 0 ? (
+                                            <Text style={{ color: '#DC2626', fontSize: 12, marginBottom: 12 }}>
+                                                ⚠️ No valid field agents with Channelier IDs found.
+                                            </Text>
+                                        ) : (
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                                    {availableCities.map(city => {
+                                                        const selected = editForm.htCity === city;
+                                                        return (
+                                                            <Pressable key={city}
+                                                                onPress={() => setEditForm((f: any) => ({ ...f, htCity: city, htAgentId: '' }))}
+                                                                style={[md.chip, {
+                                                                    paddingHorizontal: 14, paddingVertical: 8,
+                                                                    borderWidth: selected ? 2 : 1,
+                                                                    borderColor: selected ? '#EA580C' : '#E5E7EB',
+                                                                    backgroundColor: selected ? '#FFEDD5' : '#FFF',
+                                                                }]}>
+                                                                <Text style={{ fontSize: 13, fontWeight: selected ? '700' : '500', color: selected ? '#9A3412' : '#374151' }}>
+                                                                    {city}
+                                                                </Text>
+                                                            </Pressable>
+                                                        );
+                                                    })}
+                                                </View>
+                                            </ScrollView>
+                                        )}
+
+                                        {/* 2. Agent selector */}
+                                        {editForm.htCity && (
+                                            <>
+                                                <Text style={[md.label, { color: '#EA580C' }]}>2. Select Field Agent</Text>
+                                                {cityAgents.length === 0 ? (
+                                                    <Text style={{ color: '#DC2626', fontSize: 12, marginBottom: 14 }}>
+                                                        No agents found deployed in {selectedCity}.
+                                                    </Text>
+                                                ) : (
+                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                                                            {cityAgents.map(ag => {
+                                                                const selected = editForm.htAgentId === ag.id;
+                                                                return (
+                                                                    <Pressable key={ag.id}
+                                                                        onPress={() => setEditForm((f: any) => ({ ...f, htAgentId: ag.id }))}
+                                                                        style={[md.chip, {
+                                                                            paddingHorizontal: 12, paddingVertical: 8,
+                                                                            borderWidth: selected ? 2 : 1,
+                                                                            borderColor: selected ? '#CA8A04' : '#E5E7EB',
+                                                                            backgroundColor: selected ? '#FEF9C3' : '#FFF',
+                                                                        }]}>
+                                                                        <Text style={{ fontSize: 13, fontWeight: selected ? '700' : '400', color: selected ? '#854D0E' : '#374151' }}>
+                                                                            {ag.name}
+                                                                        </Text>
+                                                                        <Text style={{ fontSize: 10, color: '#9CA3AF' }}>
+                                                                            ID: {ag.channelierEmployeeId}
+                                                                        </Text>
+                                                                    </Pressable>
+                                                                );
+                                                            })}
+                                                        </View>
+                                                    </ScrollView>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {/* Validation summary */}
+                                        {!isValid && availableCities.length > 0 && (
+                                            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', marginTop: 4 }}>
+                                                ⚠️ Please complete City, Agent, and the Appointment section above.
+                                            </Text>
+                                        )}
+                                        {availableCities.length === 0 && (
+                                            <Text style={{ color: '#059669', fontSize: 12, fontWeight: '600', marginTop: 4 }}>
+                                                ✓ You can save this lead (Channelier CRM Sync will be skipped).
                                             </Text>
                                         )}
                                     </View>
@@ -2144,7 +2290,12 @@ export default function LeadManagementScreen() {
                                             ))}
                                         </View>
                                     </ScrollView>
+                                </>
+                            )}
 
+                            {/* Non-HT: Preferred EC list */}
+                            {editForm.status !== 'converted:Marked to HT' && (
+                                <>
                                     <Text style={[md.label, { marginTop: 6 }]}>Preferred Experience Center</Text>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
                                         <View style={{ flexDirection: 'row', gap: 6 }}>
