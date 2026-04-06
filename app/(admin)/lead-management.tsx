@@ -79,47 +79,49 @@ const leadCategoryStyle = (cat?: string) => cat ? (LEAD_CATEGORY_STYLES[cat] ?? 
 // ── qkonnect Click-to-Call API ────────────────────────────────────────────────
 const QKONNECT_API_KEY = '7b7dc644-cc09-4c4b-9232-007039ccba7c';
 //const QKONNECT_API_KEY = '6340a658-13d3-11f1-bec8-6045bdaaffcb';
-// ── LeadSquared Import Modal ─────────────────────────────────────────────────
-function LSImportModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
-    const [file, setFile] = useState<File | null>(null);
-    const [targetStatus, setTargetStatus] = useState('new');
+// ── Add New Lead Modal ───────────────────────────────────────────────────────
+function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
+    const [form, setForm] = useState({ name: '', phone: '', city: '', source: '', notes: '', assignedToId: '' });
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
     const [error, setError] = useState('');
+    const [callers, setCallers] = useState<any[]>([]);
 
-    const STATUS_OPTIONS = [
-        { value: 'new', label: 'New' },
-        { value: 'contacted', label: 'Contacted' },
-        { value: 'converted:Marked to EC', label: 'Booked (EC)' },
-        { value: 'converted:Marked to HT', label: 'Booked (HT)' },
-        { value: 'converted:Marked to VC', label: 'Booked (VC)' },
-        { value: 'dropped', label: 'Dropped' },
-    ];
+    useEffect(() => {
+        if (visible) {
+            api.get('/admin/lead-callers', { params: { activeOnly: true } })
+                .then(res => setCallers(Array.isArray(res.data) ? res.data : []))
+                .catch(err => console.log('Failed to load callers:', err));
+        }
+    }, [visible]);
 
-    const handleImport = async () => {
-        if (!file) { setError('Please select a file.'); return; }
+    const handleSave = async () => {
+        if (!form.phone.trim()) { setError('Phone number is required.'); return; }
+        if (!/^[0-9]{10}$/.test(form.phone.replace(/\D/g, '').slice(-10))) {
+            setError('Please enter a valid 10-digit mobile number.'); return;
+        }
         setLoading(true);
         setError('');
-        setResult(null);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('targetStatus', targetStatus);
-            const res = await api.post('/leads/import/leadsquared', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+            await api.post('/leads', {
+                name: form.name.trim() || undefined,
+                phone: form.phone.trim(),
+                city: form.city.trim() || undefined,
+                source: form.source.trim() || 'Manual Entry',
+                notes: form.notes.trim() || undefined,
+                assignedToId: form.assignedToId || undefined,
             });
-            setResult(res.data);
+            setForm({ name: '', phone: '', city: '', source: '', notes: '', assignedToId: '' });
             onDone();
+            onClose();
         } catch (e: any) {
-            setError(e?.response?.data?.message ?? 'Import failed. Please try again.');
+            setError(e?.response?.data?.message ?? 'Failed to create lead.');
         } finally {
             setLoading(false);
         }
     };
 
     const handleClose = () => {
-        setFile(null);
-        setResult(null);
+        setForm({ name: '', phone: '', city: '', source: '', notes: '', assignedToId: '' });
         setError('');
         setLoading(false);
         onClose();
@@ -137,89 +139,42 @@ function LSImportModal({ visible, onClose, onDone }: { visible: boolean; onClose
                     shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
                 }}
             >
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 4 }}>📥 Import LeadSquared Leads</Text>
-                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Upload an Excel/CSV export from LeadSquared. Leads will be matched by phone number and updated or created accordingly.</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 16 }}>➕ Add New Lead</Text>
 
-                {/* File picker */}
+                <TextInput label="Phone *" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} mode="outlined" keyboardType="phone-pad" style={{ marginBottom: 12 }} />
+                <TextInput label="Name" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} mode="outlined" style={{ marginBottom: 12 }} />
+                <TextInput label="City" value={form.city} onChangeText={v => setForm(f => ({ ...f, city: v }))} mode="outlined" style={{ marginBottom: 12 }} />
+                <TextInput label="Source" value={form.source} onChangeText={v => setForm(f => ({ ...f, source: v }))} mode="outlined" placeholder="e.g. Walk-in, Referral" style={{ marginBottom: 12 }} />
+                <TextInput label="Notes" value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} mode="outlined" multiline numberOfLines={3} style={{ marginBottom: 16 }} />
+
                 <View style={{ marginBottom: 16 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>1. Select File (.xlsx / .xls / .csv)</Text>
-                    <View style={{ borderWidth: 1.5, borderColor: file ? '#4F46E5' : '#E5E7EB', borderRadius: 10, borderStyle: 'dashed', padding: 14, alignItems: 'center', backgroundColor: '#F9FAFB' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '500', color: '#374151', marginBottom: 6, marginLeft: 4 }}>Assign To (Optional)</Text>
+                    <View style={{ borderWidth: 1, borderColor: '#79747E', borderRadius: 4, overflow: 'hidden' }}>
                         {/* @ts-ignore */}
-                        <input
-                            type="file"
-                            accept=".xlsx,.xls,.csv"
-                            onChange={(e: any) => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(''); }}
-                            style={{ fontSize: 13, color: '#374151', cursor: 'pointer', width: '100%' }}
-                        />
-                        {file && <Text style={{ fontSize: 12, color: '#4F46E5', marginTop: 6, fontWeight: '600' }}>✅ {file.name}</Text>}
+                        <select
+                            value={form.assignedToId}
+                            onChange={(e: any) => setForm(f => ({ ...f, assignedToId: e.target.value }))}
+                            style={{
+                                width: '100%', padding: 12, borderWidth: 0,
+                                backgroundColor: '#fff', fontSize: 16, color: '#1C1B1F',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="">Unassigned (Auto-assign)</option>
+                            {callers.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
                     </View>
                 </View>
 
-                {/* Status selector */}
-                <View style={{ marginBottom: 20 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>2. Set Status for All Imported Leads</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {STATUS_OPTIONS.map(opt => (
-                            <Pressable
-                                key={opt.value}
-                                onPress={() => setTargetStatus(opt.value)}
-                                style={{
-                                    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-                                    borderWidth: 1.5,
-                                    borderColor: targetStatus === opt.value ? '#4F46E5' : '#E5E7EB',
-                                    backgroundColor: targetStatus === opt.value ? '#EEF2FF' : '#fff',
-                                }}
-                            >
-                                <Text style={{ fontSize: 13, fontWeight: targetStatus === opt.value ? '700' : '500', color: targetStatus === opt.value ? '#4F46E5' : '#6B7280' }}>
-                                    {opt.label}
-                                </Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </View>
-
-                {/* Error */}
                 {!!error && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>}
 
-                {/* Result summary */}
-                {result && (
-                    <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 14, marginBottom: 16, gap: 4 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#15803D', marginBottom: 4 }}>✅ Import Complete</Text>
-                        <Text style={{ fontSize: 13, color: '#166534' }}>🆕 Created: <Text style={{ fontWeight: '700' }}>{result.created}</Text></Text>
-                        <Text style={{ fontSize: 13, color: '#166534' }}>♻️ Updated: <Text style={{ fontWeight: '700' }}>{result.updated}</Text></Text>
-                        <Text style={{ fontSize: 13, color: '#92400E' }}>⏭️ Skipped: <Text style={{ fontWeight: '700' }}>{result.skipped}</Text></Text>
-                        {result.errors.length > 0 && (
-                            <View style={{ marginTop: 8 }}>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B91C1C', marginBottom: 4 }}>⚠️ Row Errors ({result.errors.length}):</Text>
-                                <ScrollView style={{ maxHeight: 120 }}>
-                                    {result.errors.map((e, idx) => (
-                                        <Text key={idx} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</Text>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        )}
-                    </View>
-                )}
-
-                {/* Buttons */}
                 <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
                     <Button mode="outlined" onPress={handleClose} disabled={loading}>Cancel</Button>
-                    {!result && (
-                        <Button
-                            mode="contained"
-                            buttonColor="#4F46E5"
-                            textColor="#fff"
-                            onPress={handleImport}
-                            loading={loading}
-                            disabled={loading || !file}
-                            style={{ borderRadius: 8 }}
-                        >
-                            {loading ? 'Importing...' : 'Import Leads'}
-                        </Button>
-                    )}
-                    {result && (
-                        <Button mode="contained" buttonColor="#15803D" textColor="#fff" onPress={handleClose} style={{ borderRadius: 8 }}>Done</Button>
-                    )}
+                    <Button mode="contained" buttonColor="#4F46E5" textColor="#fff" onPress={handleSave} loading={loading} disabled={loading} style={{ borderRadius: 8 }}>
+                        Create Lead
+                    </Button>
                 </View>
             </Modal>
         </Portal>
@@ -695,8 +650,8 @@ export default function LeadManagementScreen() {
 
     // ── Priority filter ───────────────────────────────────────────────────────
 
-    // ── LS Import modal ───────────────────────────────────────────────────────
-    const [lsImportVisible, setLsImportVisible] = useState(false);
+    // ── Add Lead modal ────────────────────────────────────────────────────────
+    const [addLeadVisible, setAddLeadVisible] = useState(false);
 
     // ── History ───────────────────────────────────────────────────────────
     const [historyLead, setHistoryLead] = useState<any>(null);
@@ -735,6 +690,8 @@ export default function LeadManagementScreen() {
                     leadCategory: categoryFilter || undefined,
                     isHighPriority: priorityFilter ? 'true' : undefined,
                     isUnassigned: unassignedFilter ? 'true' : undefined,
+                    agingSort: agingSort !== 'none' ? agingSort : undefined,
+                    agingDays: colFilters.aging ? parseInt(colFilters.aging, 10) : undefined,
                     deduplicateByPhone: true,
                 }
             });
@@ -746,7 +703,7 @@ export default function LeadManagementScreen() {
             setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, [search, filter, colFilters, categoryFilter, priorityFilter, unassignedFilter]);
+    }, [search, filter, colFilters, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -754,7 +711,7 @@ export default function LeadManagementScreen() {
             loadLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, filter, search, categoryFilter, priorityFilter, unassignedFilter]);
+    }, [colFilters, filter, search, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -931,18 +888,6 @@ export default function LeadManagementScreen() {
         return 0;
     });
 
-    // Apply aging sort (within each priority group)
-    if (agingSort !== 'none') {
-        colFilteredLeads.sort((a: any, b: any) => {
-            // Keep high-priority at top even during aging sort
-            if (b.isHighPriority && !a.isHighPriority) return 1;
-            if (a.isHighPriority && !b.isHighPriority) return -1;
-            const aAge = a.createdAt ? Date.now() - new Date(a.createdAt).getTime() : 0;
-            const bAge = b.createdAt ? Date.now() - new Date(b.createdAt).getTime() : 0;
-            return agingSort === 'asc' ? aAge - bAge : bAge - aAge;
-        });
-    }
-
     const hasActiveColFilters = Object.values(colFilters).some(v => !!v);
 
     // ── CSV Export ────────────────────────────────────────────────
@@ -1066,14 +1011,15 @@ export default function LeadManagementScreen() {
                 )}
                 <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
                 <Button
-                    mode="outlined"
-                    icon="file-upload"
-                    onPress={() => setLsImportVisible(true)}
+                    mode="contained"
+                    icon="account-plus"
+                    onPress={() => setAddLeadVisible(true)}
                     compact
-                    style={{ borderRadius: 8, borderColor: '#6366F1' }}
-                    textColor="#6366F1"
+                    style={{ borderRadius: 8 }}
+                    buttonColor="#4F46E5"
+                    textColor="#fff"
                 >
-                    Import LS Leads
+                    Add New Lead
                 </Button>
             </View>
 
@@ -1233,13 +1179,13 @@ export default function LeadManagementScreen() {
                             <View style={[tbl.headerRow, { backgroundColor: '#FAFBFF', borderBottomColor: '#E5E7EB', paddingVertical: 4 }]}>
                                 {COLS.map(col => {
                                     // Skip non-filterable columns
-                                    if (['actions', 'callProgress', 'nextActionDate', 'appointmentBooked', 'aging'].includes(col.key)) {
+                                    if (['actions', 'callProgress', 'nextActionDate', 'appointmentBooked'].includes(col.key)) {
                                         return <View key={col.key} style={{ width: col.width, paddingHorizontal: 4 }} />;
                                     }
                                     return (
                                         <View key={col.key} style={{ width: col.width, paddingHorizontal: 4 }}>
                                             <RNTextInput
-                                                placeholder="Filter…"
+                                                placeholder={col.key === 'aging' ? "e.g. 5 (days)" : "Filter…"}
                                                 placeholderTextColor="#9CA3AF"
                                                 value={colFilters[col.key] ?? ''}
                                                 onChangeText={(text) => setColFilters(prev => ({ ...prev, [col.key]: text }))}
@@ -1248,6 +1194,7 @@ export default function LeadManagementScreen() {
                                                     paddingHorizontal: 8, paddingVertical: 4, fontSize: 11,
                                                     color: '#374151', backgroundColor: '#fff',
                                                 }}
+                                                keyboardType={col.key === 'aging' ? 'number-pad' : 'default'}
                                             />
                                         </View>
                                     );
@@ -2504,10 +2451,10 @@ export default function LeadManagementScreen() {
                 )
             }
 
-            {/* ── LeadSquared Import Modal ── */}
-            <LSImportModal
-                visible={lsImportVisible}
-                onClose={() => setLsImportVisible(false)}
+            {/* ── Add New Lead Modal ── */}
+            <AddLeadModal
+                visible={addLeadVisible}
+                onClose={() => setAddLeadVisible(false)}
                 onDone={() => { loadLeads(1); }}
             />
         </AdminPageLayout >

@@ -140,9 +140,6 @@ export default function CallerDashboardScreen() {
                                         Shift started at {new Date(profile.shiftStartedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                     </Text>
                                 )}
-                                <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 6 }}>
-                                    Auto-logout happens at 6:00 PM IST every day
-                                </Text>
                             </View>
 
                             <View style={{ alignItems: 'center', gap: 12 }}>
@@ -316,7 +313,7 @@ export default function CallerDashboardScreen() {
                     <Dialog.Title>Start Shift?</Dialog.Title>
                     <Dialog.Content>
                         <Text variant="bodyMedium" style={{ color: Colors.textSecondary }}>
-                            You will start receiving lead assignments. Your shift will auto-end at 6:00 PM IST.
+                            You will start receiving lead assignments until you end your shift.
                         </Text>
                     </Dialog.Content>
                     <Dialog.Actions>
