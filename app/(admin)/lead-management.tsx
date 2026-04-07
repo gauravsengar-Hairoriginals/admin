@@ -50,7 +50,7 @@ const leadStatusStyle = (val?: string) =>
 
 // ── Table columns ──────────────────────────────────────────────────────────────
 const COLS = [
-    { key: 'actions', label: '', width: 120 },
+    { key: 'actions', label: '', width: 155 },
     { key: 'aging', label: 'Aging', width: 80 },
     { key: 'status', label: 'Status', width: 130 },
     { key: 'name', label: 'Name', width: 150 },
@@ -181,6 +181,101 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
     );
 }
 
+// ── ReassignLeadModal ─────────────────────────────────────────────────────────
+function ReassignLeadModal({
+    lead, visible, onClose, onDone,
+}: { lead: any; visible: boolean; onClose: () => void; onDone: () => void }) {
+    const [callers, setCallers]   = useState<any[]>([]);
+    const [targetId, setTargetId] = useState('');
+    const [saving, setSaving]     = useState(false);
+    const [error, setError]       = useState('');
+
+    useEffect(() => {
+        if (visible) {
+            setTargetId(lead?.assignedToId ?? '');
+            setError('');
+            api.get('/admin/lead-callers', { params: { activeOnly: true } })
+                .then(res => setCallers(Array.isArray(res.data) ? res.data : []))
+                .catch(() => {});
+        }
+    }, [visible, lead]);
+
+    const handleSave = async () => {
+        if (!targetId) { setError('Please select a caller.'); return; }
+        setSaving(true);
+        setError('');
+        try {
+            await api.patch(`/leads/${lead.id}`, { assignedToId: targetId });
+            onDone();
+            onClose();
+        } catch (e: any) {
+            setError(e?.response?.data?.message ?? 'Failed to reassign.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const currentCaller = callers.find(c => c.id === lead?.assignedToId);
+
+    return (
+        <Portal>
+            <Modal
+                visible={visible}
+                onDismiss={onClose}
+                contentContainerStyle={{
+                    backgroundColor: '#fff', borderRadius: 16, padding: 24,
+                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 420, width: '100%',
+                    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+                }}
+            >
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 4 }}>🔁 Reassign Lead</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+                    {lead?.customer?.name ?? 'Unknown'} · {lead?.customer?.phone ?? ''}
+                </Text>
+
+                {currentCaller && (
+                    <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, padding: 10, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ fontSize: 12, color: '#92400E' }}>Currently assigned to</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>{currentCaller.name}</Text>
+                    </View>
+                )}
+
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 }}>Assign to</Text>
+                <View style={{ borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+                    {/* @ts-ignore */}
+                    <select
+                        value={targetId}
+                        onChange={(e: any) => setTargetId(e.target.value)}
+                        style={{
+                            width: '100%', padding: 12, border: 'none',
+                            backgroundColor: '#fff', fontSize: 14, color: '#1C1B1F',
+                            outline: 'none',
+                        }}
+                    >
+                        <option value="">— Select caller —</option>
+                        {callers.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                </View>
+
+                {!!error && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>}
+
+                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+                    <Button mode="outlined" onPress={onClose} disabled={saving}>Cancel</Button>
+                    <Button
+                        mode="contained" buttonColor="#6366F1" textColor="#fff"
+                        onPress={handleSave} loading={saving} disabled={saving || !targetId}
+                        style={{ borderRadius: 8 }} icon="account-arrow-right"
+                    >
+                        Reassign
+                    </Button>
+                </View>
+            </Modal>
+        </Portal>
+    );
+}
 
 function CallConfirmModal({
     lead, agentPhone, onClose,
@@ -652,6 +747,9 @@ export default function LeadManagementScreen() {
 
     // ── Add Lead modal ────────────────────────────────────────────────────────
     const [addLeadVisible, setAddLeadVisible] = useState(false);
+
+    // ── Reassign Lead ─────────────────────────────────────────────────────
+    const [reassignLead, setReassignLead] = useState<any>(null);
 
     // ── History ───────────────────────────────────────────────────────────
     const [historyLead, setHistoryLead] = useState<any>(null);
@@ -1261,13 +1359,18 @@ export default function LeadManagementScreen() {
                                                 filter === 'revisit' && { borderLeftWidth: 3, borderLeftColor: '#C4B5FD' },
                                             ]}>
                                                 {/* Edit + History + Call buttons */}
-                                                <View style={[tbl.cell, { width: 120, alignItems: 'center', flexDirection: 'row', gap: 0 }]}>
+                                                <View style={[tbl.cell, { width: 155, alignItems: 'center', flexDirection: 'row', gap: 0 }]}>
                                                     <IconButton icon="pencil" size={18} onPress={() => openEdit(lead)}
                                                         style={{ margin: 0 }} iconColor={Colors.primary} />
                                                     <IconButton icon="history" size={18} onPress={() => openHistory(lead)}
                                                         style={{ margin: 0 }} iconColor="#6B7280" />
                                                     <IconButton icon="phone" size={18} onPress={() => setCallLead(lead)}
                                                         style={{ margin: 0 }} iconColor="#16A34A" />
+                                                    <IconButton
+                                                        icon="account-arrow-right" size={18}
+                                                        onPress={() => setReassignLead(lead)}
+                                                        style={{ margin: 0 }} iconColor="#7C3AED"
+                                                    />
                                                 </View>
 
                                                 {/* Aging */}
@@ -2457,6 +2560,16 @@ export default function LeadManagementScreen() {
                 onClose={() => setAddLeadVisible(false)}
                 onDone={() => { loadLeads(1); }}
             />
+
+            {/* ── Reassign Lead Modal ── */}
+            {reassignLead && (
+                <ReassignLeadModal
+                    lead={reassignLead}
+                    visible={!!reassignLead}
+                    onClose={() => setReassignLead(null)}
+                    onDone={() => loadLeads(page)}
+                />
+            )}
         </AdminPageLayout >
     );
 }

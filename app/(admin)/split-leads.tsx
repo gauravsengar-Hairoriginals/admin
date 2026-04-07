@@ -108,8 +108,7 @@ function AccordionRow({
         }
     };
 
-    // build the animated max-height from 0..1
-    const maxH = animHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 800] });
+
 
     return (
         <View style={styles.accordionItem}>
@@ -148,45 +147,10 @@ function AccordionRow({
 
             {/* ── Expanded body ── */}
             {open && (
-                <Animated.View style={[styles.accordionBody, { maxHeight: maxH, opacity: animOpacity }]}>
+                <Animated.View style={[styles.accordionBody, { opacity: animOpacity }]}>
                     <Divider style={{ marginBottom: 12 }} />
 
-                    {/* Lead rows */}
-                    <Text style={styles.sectionLabel}>Leads</Text>
-                    {item.leads.map((lead, li) => {
-                        const callerIdx = item.callers.findIndex(c => c.id === lead.assignedToId);
-                        const cc = callerColor(callerIdx >= 0 ? callerIdx : 0);
-                        const ss = statusStyle(lead.status);
-                        return (
-                            <View key={lead.id} style={[styles.leadRow, { borderLeftColor: cc }]}>
-                                <View style={{ flex: 1 }}>
-                                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
-                                        {/* Status chip */}
-                                        <View style={[styles.chip, { backgroundColor: ss.bg }]}>
-                                            <Text style={[styles.chipText, { color: ss.color }]}>
-                                                {lead.status?.replace(/_/g, ' ')}
-                                            </Text>
-                                        </View>
-                                        {/* Category chip */}
-                                        <View style={[styles.chip, { backgroundColor: '#F5F3FF' }]}>
-                                            <Text style={[styles.chipText, { color: '#5B21B6' }]}>{lead.leadCategory}</Text>
-                                        </View>
-                                        {/* Source */}
-                                        <Text style={styles.leadMeta}>{lead.source}</Text>
-                                    </View>
-                                    <Text style={styles.leadMeta}>Created: {fmtDate(lead.createdAt)}</Text>
-                                </View>
-                                {/* Caller indicator */}
-                                <View style={[styles.callerTag, { backgroundColor: `${cc}18`, borderColor: cc }]}>
-                                    <Text style={[styles.callerTagText, { color: cc }]}>
-                                        {lead.assignedToName ?? 'Unassigned'}
-                                    </Text>
-                                </View>
-                            </View>
-                        );
-                    })}
-
-                    {/* Consolidate section */}
+                    {/* ── Consolidate section — pinned at top so it's never hidden ── */}
                     <View style={styles.consolidateBox}>
                         <Text style={styles.sectionLabel}>Consolidate to one caller</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -234,6 +198,49 @@ function AccordionRow({
                             </Button>
                         </View>
                     </View>
+
+                    <Divider style={{ marginVertical: 10 }} />
+
+                    {/* ── Lead rows — scrollable if list is long ── */}
+                    <Text style={styles.sectionLabel}>Leads</Text>
+                    <ScrollView
+                        style={{ maxHeight: 320 }}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator
+                    >
+                        {item.leads.map((lead, li) => {
+                            const callerIdx = item.callers.findIndex(c => c.id === lead.assignedToId);
+                            const cc = callerColor(callerIdx >= 0 ? callerIdx : 0);
+                            const ss = statusStyle(lead.status);
+                            return (
+                                <View key={lead.id} style={[styles.leadRow, { borderLeftColor: cc }]}>
+                                    <View style={{ flex: 1 }}>
+                                        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                                            {/* Status chip */}
+                                            <View style={[styles.chip, { backgroundColor: ss.bg }]}>
+                                                <Text style={[styles.chipText, { color: ss.color }]}>
+                                                    {lead.status?.replace(/_/g, ' ')}
+                                                </Text>
+                                            </View>
+                                            {/* Category chip */}
+                                            <View style={[styles.chip, { backgroundColor: '#F5F3FF' }]}>
+                                                <Text style={[styles.chipText, { color: '#5B21B6' }]}>{lead.leadCategory}</Text>
+                                            </View>
+                                            {/* Source */}
+                                            <Text style={styles.leadMeta}>{lead.source}</Text>
+                                        </View>
+                                        <Text style={styles.leadMeta}>Created: {fmtDate(lead.createdAt)}</Text>
+                                    </View>
+                                    {/* Caller indicator */}
+                                    <View style={[styles.callerTag, { backgroundColor: `${cc}18`, borderColor: cc }]}>
+                                        <Text style={[styles.callerTagText, { color: cc }]}>
+                                            {lead.assignedToName ?? 'Unassigned'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </ScrollView>
                 </Animated.View>
             )}
         </View>
