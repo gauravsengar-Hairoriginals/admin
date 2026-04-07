@@ -25,6 +25,8 @@ export default function AdminLayout() {
         { name: 'Lead Callers', route: '/(admin)/lead-callers', icon: 'phone-in-talk' },
         { name: 'Lead Management', route: '/(admin)/lead-management', icon: 'clipboard-list' },
         { name: 'Aging Report', route: '/(admin)/aging-dashboard', icon: 'chart-bar' },
+        { name: 'Conversions',  route: '/(admin)/conversion-dashboard', icon: 'chart-timeline-variant' },
+        { name: 'Split Leads',  route: '/(admin)/split-leads',          icon: 'call-split' },
         { name: 'FB Forms', route: '/(admin)/facebook-forms', icon: 'facebook' },
         { name: 'City Regions', route: '/(admin)/city-regions', icon: 'map-marker-multiple' },
         ...(user?.role === 'SUPER_ADMIN' || user?.permissions?.includes('VIEW_ORDERS')
