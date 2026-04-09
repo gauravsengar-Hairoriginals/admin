@@ -168,6 +168,157 @@ function LSImportModal({ visible, onClose, onDone }: { visible: boolean; onClose
     );
 }
 
+// ── Delete by Phone Number (Excel) Modal ────────────────────────────────────
+function DeleteByPhoneModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
+    const [file, setFile] = useState<File | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [confirmed, setConfirmed] = useState(false);
+    const [result, setResult] = useState<{ deleted: number; notFound: number; notFoundPhones: string[]; phoneNumbers: string[]; errors: string[] } | null>(null);
+    const [error, setError] = useState('');
+
+    const handleDelete = async () => {
+        if (!file) { setError('Please select a file.'); return; }
+        if (!confirmed) { setError('Please tick the confirmation checkbox before proceeding.'); return; }
+        setLoading(true);
+        setError('');
+        setResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/leads/delete-by-phone-excel', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            setResult(res.data);
+            onDone();
+        } catch (e: any) {
+            setError(e?.response?.data?.message ?? 'Deletion failed. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleClose = () => {
+        setFile(null);
+        setResult(null);
+        setError('');
+        setLoading(false);
+        setConfirmed(false);
+        onClose();
+    };
+
+    return (
+        <Portal>
+            <Modal
+                visible={visible}
+                onDismiss={handleClose}
+                contentContainerStyle={{
+                    backgroundColor: '#fff', borderRadius: 16, padding: 28,
+                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 520, width: '100%',
+                    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+                }}
+            >
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 4 }}>🗑️ Delete Leads by Phone Number</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+                    Upload an Excel file with a <Text style={{ fontWeight: '700', color: '#DC2626' }}>customer_phone_number</Text> column.
+                    All lead records whose customer phone matches will be permanently deleted.
+                </Text>
+
+                {/* Format hint */}
+                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: '#D97706' }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E', marginBottom: 4 }}>📋 Required Excel Format</Text>
+                    <Text style={{ fontSize: 12, color: '#78350F' }}>Column header must be exactly: <Text style={{ fontFamily: 'monospace', fontWeight: '700' }}>customer_phone_number</Text></Text>
+                    <Text style={{ fontSize: 12, color: '#78350F', marginTop: 2 }}>Each row should contain one phone number (e.g. 9876543210)</Text>
+                </View>
+
+                {/* File picker */}
+                <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>1. Select File (.xlsx / .xls)</Text>
+                    <View style={{ borderWidth: 1.5, borderColor: file ? '#DC2626' : '#E5E7EB', borderRadius: 10, borderStyle: 'dashed', padding: 14, alignItems: 'center', backgroundColor: '#FFF7F7' }}>
+                        {/* @ts-ignore */}
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={(e: any) => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(''); setConfirmed(false); }}
+                            style={{ fontSize: 13, color: '#374151', cursor: 'pointer', width: '100%' }}
+                        />
+                        {file && <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 6, fontWeight: '600' }}>✅ {file.name}</Text>}
+                    </View>
+                </View>
+
+                {/* Confirmation checkbox */}
+                {!result && (
+                    <Pressable
+                        onPress={() => setConfirmed(c => !c)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, padding: 12, backgroundColor: confirmed ? '#FEE2E2' : '#F9FAFB', borderRadius: 10, borderWidth: 1.5, borderColor: confirmed ? '#FCA5A5' : '#E5E7EB' }}
+                    >
+                        <Checkbox status={confirmed ? 'checked' : 'unchecked'} color="#DC2626" />
+                        <Text style={{ flex: 1, fontSize: 13, color: '#374151', fontWeight: '500' }}>
+                            I understand this will <Text style={{ fontWeight: '800', color: '#DC2626' }}>permanently delete</Text> all listed leads and this action <Text style={{ fontWeight: '800' }}>cannot be undone</Text>.
+                        </Text>
+                    </Pressable>
+                )}
+
+                {/* Error */}
+                {!!error && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>}
+
+                {/* Result summary */}
+                {result && (
+                    <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 14, marginBottom: 16, gap: 4 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#991B1B', marginBottom: 4 }}>🗑️ Deletion Complete</Text>
+                        <Text style={{ fontSize: 13, color: '#7F1D1D' }}>✅ Leads deleted: <Text style={{ fontWeight: '700' }}>{result.deleted}</Text></Text>
+                        <Text style={{ fontSize: 13, color: '#92400E' }}>📋 Phones processed: <Text style={{ fontWeight: '700' }}>{result.phoneNumbers.length}</Text></Text>
+                        {result.notFound > 0 && (
+                            <Text style={{ fontSize: 13, color: '#92400E' }}>⚠️ Not found: <Text style={{ fontWeight: '700' }}>{result.notFound}</Text> (no matching customer)</Text>
+                        )}
+                        {result.notFoundPhones.length > 0 && (
+                            <View style={{ marginTop: 8 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B45309', marginBottom: 4 }}>Unmatched phone numbers:</Text>
+                                <ScrollView style={{ maxHeight: 100 }}>
+                                    {result.notFoundPhones.map((p, idx) => (
+                                        <Text key={idx} style={{ fontSize: 11, color: '#92400E' }}>• {p}</Text>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                        {result.errors.length > 0 && (
+                            <View style={{ marginTop: 8 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B91C1C', marginBottom: 4 }}>⚠️ Row Errors ({result.errors.length}):</Text>
+                                <ScrollView style={{ maxHeight: 80 }}>
+                                    {result.errors.map((e, idx) => (
+                                        <Text key={idx} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</Text>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                {/* Buttons */}
+                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+                    <Button mode="outlined" onPress={handleClose} disabled={loading}>Cancel</Button>
+                    {!result && (
+                        <Button
+                            mode="contained"
+                            buttonColor="#DC2626"
+                            textColor="#fff"
+                            onPress={handleDelete}
+                            loading={loading}
+                            disabled={loading || !file || !confirmed}
+                            style={{ borderRadius: 8 }}
+                        >
+                            {loading ? 'Deleting...' : 'Delete Leads'}
+                        </Button>
+                    )}
+                    {result && (
+                        <Button mode="contained" buttonColor="#374151" textColor="#fff" onPress={handleClose} style={{ borderRadius: 8 }}>Done</Button>
+                    )}
+                </View>
+            </Modal>
+        </Portal>
+    );
+}
+
 const EMPTY_FORM = {
     name: '',
     phone: '',
@@ -208,6 +359,9 @@ export default function LeadsScreen() {
 
     // ─── LS Import modal ─────────────────────────────────────────────────
     const [lsImportVisible, setLsImportVisible] = useState(false);
+
+    // ─── Delete by Phone modal ────────────────────────────────────────────
+    const [deleteByPhoneVisible, setDeleteByPhoneVisible] = useState(false);
 
     // ─── Assign state ─────────────────────────────────────────────────────
     const [assignTarget, setAssignTarget] = useState<any>(null);
@@ -665,6 +819,18 @@ export default function LeadsScreen() {
                             textColor="#6366F1"
                         >
                             Import LS Leads
+                        </Button>
+                    )}
+                    {(isSuperAdmin || user?.role === 'ADMIN') && (
+                        <Button
+                            mode="outlined"
+                            icon="delete-circle"
+                            onPress={() => setDeleteByPhoneVisible(true)}
+                            compact
+                            style={{ marginLeft: 8, borderRadius: 8, borderColor: '#DC2626' }}
+                            textColor="#DC2626"
+                        >
+                            Delete by Phone
                         </Button>
                     )}
                 </View>
@@ -1490,6 +1656,13 @@ export default function LeadsScreen() {
             <LSImportModal
                 visible={lsImportVisible}
                 onClose={() => setLsImportVisible(false)}
+                onDone={() => fetchLeads(1)}
+            />
+
+            {/* ── Delete by Phone (Excel) Modal ── */}
+            <DeleteByPhoneModal
+                visible={deleteByPhoneVisible}
+                onClose={() => setDeleteByPhoneVisible(false)}
                 onDone={() => fetchLeads(1)}
             />
         </AdminPageLayout>
