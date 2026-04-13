@@ -168,6 +168,119 @@ function LSImportModal({ visible, onClose, onDone }: { visible: boolean; onClose
     );
 }
 
+// ── Generic CSV Import Modal ─────────────────────────────────────────────────
+function GenericCsvImportModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
+    const [file, setFile] = useState<File | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
+    const [error, setError] = useState('');
+
+    const handleImport = async () => {
+        if (!file) { setError('Please select a file.'); return; }
+        setLoading(true);
+        setError('');
+        setResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/leads/import/generic-csv', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            setResult(res.data);
+            onDone();
+        } catch (e: any) {
+            setError(e?.response?.data?.message ?? 'Import failed. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleClose = () => {
+        setFile(null);
+        setResult(null);
+        setError('');
+        setLoading(false);
+        onClose();
+    };
+
+    return (
+        <Portal>
+            <Modal
+                visible={visible}
+                onDismiss={handleClose}
+                contentContainerStyle={{
+                    backgroundColor: '#fff', borderRadius: 16, padding: 28,
+                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 480, width: '100%',
+                    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+                }}
+            >
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 4 }}>📥 Import Leads from CSV</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 4 }}>Upload a CSV in the admin export format. Leads are matched by phone number and will be created or enriched with missing details.</Text>
+                <View style={{ backgroundColor: '#EFF6FF', borderRadius: 8, padding: 10, marginBottom: 20 }}>
+                    <Text style={{ fontSize: 11, color: '#1D4ED8', fontWeight: '600' }}>📋 Expected columns: Name, Phone, Email, City, Address, Product, Type, Source, Campaign ID</Text>
+                </View>
+
+                {/* File picker */}
+                <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 6 }}>Select File (.csv)</Text>
+                    <View style={{ borderWidth: 1.5, borderColor: file ? '#10B981' : '#E5E7EB', borderRadius: 10, borderStyle: 'dashed', padding: 14, alignItems: 'center', backgroundColor: '#F9FAFB' }}>
+                        {/* @ts-ignore */}
+                        <input
+                            type="file"
+                            accept=".csv,text/csv"
+                            onChange={(e: any) => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(''); }}
+                            style={{ fontSize: 13, color: '#374151', cursor: 'pointer', width: '100%' }}
+                        />
+                        {file && <Text style={{ fontSize: 12, color: '#10B981', marginTop: 6, fontWeight: '600' }}>✅ {file.name}</Text>}
+                    </View>
+                </View>
+
+                {!!error && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>}
+
+                {result && (
+                    <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 14, marginBottom: 16, gap: 4 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#15803D', marginBottom: 4 }}>✅ Import Complete</Text>
+                        <Text style={{ fontSize: 13, color: '#166534' }}>🆕 Created: <Text style={{ fontWeight: '700' }}>{result.created}</Text></Text>
+                        <Text style={{ fontSize: 13, color: '#166534' }}>♻️ Updated: <Text style={{ fontWeight: '700' }}>{result.updated}</Text></Text>
+                        <Text style={{ fontSize: 13, color: '#92400E' }}>⏭️ Skipped: <Text style={{ fontWeight: '700' }}>{result.skipped}</Text></Text>
+                        {result.errors.length > 0 && (
+                            <View style={{ marginTop: 8 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B91C1C', marginBottom: 4 }}>⚠️ Row Errors ({result.errors.length}):</Text>
+                                <ScrollView style={{ maxHeight: 120 }}>
+                                    {result.errors.map((e, idx) => (
+                                        <Text key={idx} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</Text>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+                    <Button mode="outlined" onPress={handleClose} disabled={loading}>Cancel</Button>
+                    {!result && (
+                        <Button
+                            mode="contained"
+                            buttonColor="#10B981"
+                            textColor="#fff"
+                            onPress={handleImport}
+                            loading={loading}
+                            disabled={loading || !file}
+                            style={{ borderRadius: 8 }}
+                        >
+                            {loading ? 'Importing...' : 'Import Leads'}
+                        </Button>
+                    )}
+                    {result && (
+                        <Button mode="contained" buttonColor="#15803D" textColor="#fff" onPress={handleClose} style={{ borderRadius: 8 }}>Done</Button>
+                    )}
+                </View>
+            </Modal>
+        </Portal>
+    );
+}
+
 // ── Delete by Phone Number (Excel) Modal ────────────────────────────────────
 function DeleteByPhoneModal({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: () => void }) {
     const [file, setFile] = useState<File | null>(null);
@@ -347,6 +460,12 @@ export default function LeadsScreen() {
     // ─── Add / Edit modal ────────────────────────────────────────────────
     const [modalVisible, setModalVisible] = useState(false);
     const [editingLead, setEditingLead] = useState<any>(null);
+    // ─── LS Import modal ───────────────────────────────────────────
+    const [lsImportVisible, setLsImportVisible] = useState(false);
+
+    // ─── Generic CSV Import modal ────────────────────────────────────
+    const [csvImportVisible, setCsvImportVisible] = useState(false);
+
     const [form, setForm] = useState({ ...EMPTY_FORM });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -356,9 +475,6 @@ export default function LeadsScreen() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [clearDialogVisible, setClearDialogVisible] = useState(false);
     const [clearLoading, setClearLoading] = useState(false);
-
-    // ─── LS Import modal ─────────────────────────────────────────────────
-    const [lsImportVisible, setLsImportVisible] = useState(false);
 
     // ─── Delete by Phone modal ────────────────────────────────────────────
     const [deleteByPhoneVisible, setDeleteByPhoneVisible] = useState(false);
@@ -819,6 +935,18 @@ export default function LeadsScreen() {
                             textColor="#6366F1"
                         >
                             Import LS Leads
+                        </Button>
+                    )}
+                    {(isSuperAdmin || user?.role === 'ADMIN') && (
+                        <Button
+                            mode="outlined"
+                            icon="upload"
+                            onPress={() => setCsvImportVisible(true)}
+                            compact
+                            style={{ marginLeft: 8, borderRadius: 8, borderColor: '#10B981', borderWidth: 1.5 }}
+                            textColor="#065F46"
+                        >
+                            Import CSV
                         </Button>
                     )}
                     {(isSuperAdmin || user?.role === 'ADMIN') && (
@@ -1656,6 +1784,13 @@ export default function LeadsScreen() {
             <LSImportModal
                 visible={lsImportVisible}
                 onClose={() => setLsImportVisible(false)}
+                onDone={() => fetchLeads(1)}
+            />
+
+            {/* ── Generic CSV Import Modal ── */}
+            <GenericCsvImportModal
+                visible={csvImportVisible}
+                onClose={() => setCsvImportVisible(false)}
                 onDone={() => fetchLeads(1)}
             />
 

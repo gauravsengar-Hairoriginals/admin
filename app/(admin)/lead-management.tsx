@@ -755,6 +755,29 @@ export default function LeadManagementScreen() {
     const [historyLead, setHistoryLead] = useState<any>(null);
     const [callLead, setCallLead] = useState<any>(null);
     const { user } = useAuth();
+    
+    // ── CSV Import ───────────────────────────────────────────────────────
+    const [importingCsv, setImportingCsv] = useState(false);
+    const uploadCSV = async (event: any) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setImportingCsv(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/leads/import/generic-csv', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            alert(`✅ Import Complete\nCreated: ${res.data.created}\nUpdated: ${res.data.updated}\nSkipped: ${res.data.skipped}\nErrors: ${res.data.errors?.length || 0}`);
+            loadLeads(1); // Reload current page
+        } catch (err: any) {
+            alert('❌ Import failed: ' + (err?.response?.data?.message ?? err?.message));
+        } finally {
+            setImportingCsv(false);
+            event.target.value = ''; // Reset file input
+        }
+    };
+    
     const [historyData, setHistoryData] = useState<{ currentLead: any; priorLeads: any[] } | null>(null);
     const [historyLoading, setHistoryLoading] = useState(false);
 
