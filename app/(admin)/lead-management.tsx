@@ -1125,6 +1125,32 @@ export default function LeadManagementScreen() {
                     </Button>
                 )}
                 <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+
+                {/* ── Import CSV ── */}
+                {/* @ts-ignore */}
+                <input
+                    id="lead-csv-import-input"
+                    type="file"
+                    accept=".csv,text/csv"
+                    style={{ display: 'none' }}
+                    onChange={uploadCSV}
+                />
+                <Button
+                    mode="outlined"
+                    icon={importingCsv ? 'loading' : 'upload'}
+                    loading={importingCsv}
+                    disabled={importingCsv}
+                    compact
+                    style={{ borderRadius: 8, borderColor: '#10B981', borderWidth: 1.5 }}
+                    textColor="#065F46"
+                    onPress={() => {
+                        if (!importingCsv) (document.getElementById('lead-csv-import-input') as any)?.click();
+                    }}
+                >
+                    Import CSV
+                </Button>
+
+                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
                 <Button
                     mode="contained"
                     icon="account-plus"
