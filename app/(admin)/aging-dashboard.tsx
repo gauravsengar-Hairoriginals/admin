@@ -3,7 +3,7 @@ import {
     View, ScrollView, StyleSheet, RefreshControl,
 } from 'react-native';
 import {
-    Text, Card, ActivityIndicator, Button, Surface, SegmentedButtons,
+    Text, Card, ActivityIndicator, Button, SegmentedButtons,
 } from 'react-native-paper';
 import AdminPageLayout from '../../components/AdminPageLayout';
 import api from '../../services/api';
@@ -11,165 +11,185 @@ import { Colors } from '../../constants/Colors';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface StageRow {
-    stage: string;
-    total: number;
-    bucketCounts: number[];
+interface StatusRow {
+    status: string;
+    label: string;
+    dayCounts: number[];
+    rowTotal: number;
 }
 
-interface CategoryData {
+interface CategoryReport {
     category: string;
-    total: number;
-    avgAgingDays: number;
-    buckets: string[];
-    stages: StageRow[];
+    statusRows: StatusRow[];
+    dayTotals: number[];
+    grandTotal: number;
 }
 
-interface SourceData {
-    source: string;
-    total: number;
-    avgAgingDays: number;
-    buckets: string[];
-    stages: StageRow[];
-}
-
-interface CallerData {
+interface CallerReport {
     callerId: string;
     callerName: string;
-    total: number;
-    avgAgingDays: number;
-    buckets: string[];
-    stages: StageRow[];
+    statusRows: StatusRow[];
+    dayTotals: number[];
+    grandTotal: number;
+}
+
+interface DailyAgingData {
+    days: string[];
+    today: string;
+    categories: CategoryReport[];
+}
+
+interface DailyCallerData {
+    days: string[];
+    today: string;
+    callers: CallerReport[];
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const CATEGORY_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
-    EC:      { label: '🔵 EC',      color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
-    HT:      { label: '🟢 HT',      color: '#065F46', bg: '#F0FDF4', border: '#BBF7D0' },
-    WEBSITE: { label: '🟣 Website',  color: '#5B21B6', bg: '#FAF5FF', border: '#DDD6FE' },
-    POPIN:   { label: '🟡 Popin',   color: '#92400E', bg: '#FFFBEB', border: '#FDE68A' },
-    OTHER:   { label: '⚪ Other',    color: '#374151', bg: '#F9FAFB', border: '#E5E7EB' },
+const CATEGORY_META: Record<string, { label: string; color: string; bg: string; border: string; emoji: string }> = {
+    HT:      { label: 'HT',      emoji: '🟢', color: '#065F46', bg: '#F0FDF4', border: '#6EE7B7' },
+    EC:      { label: 'EC',      emoji: '🔵', color: '#1E40AF', bg: '#EFF6FF', border: '#93C5FD' },
+    POPIN:   { label: 'Popin',   emoji: '🟡', color: '#92400E', bg: '#FFFBEB', border: '#FCD34D' },
+    WEBSITE: { label: 'Website', emoji: '🟣', color: '#5B21B6', bg: '#FAF5FF', border: '#C4B5FD' },
+    OTHER:   { label: 'Other',   emoji: '⚪', color: '#374151', bg: '#F9FAFB', border: '#D1D5DB' },
 };
 
-const CALLER_COLORS = [
-    { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
-    { color: '#065F46', bg: '#F0FDF4', border: '#BBF7D0' },
-    { color: '#5B21B6', bg: '#FAF5FF', border: '#DDD6FE' },
-    { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A' },
-    { color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+const CALLER_PALETTE = [
+    { color: '#1E40AF', bg: '#EFF6FF', border: '#93C5FD' },
+    { color: '#065F46', bg: '#F0FDF4', border: '#6EE7B7' },
+    { color: '#7C3AED', bg: '#F5F3FF', border: '#C4B5FD' },
+    { color: '#92400E', bg: '#FFFBEB', border: '#FCD34D' },
     { color: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
-    { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
     { color: '#BE123C', bg: '#FFF1F2', border: '#FECDD3' },
+    { color: '#1D4ED8', bg: '#DBEAFE', border: '#93C5FD' },
+    { color: '#6D28D9', bg: '#EDE9FE', border: '#C4B5FD' },
+    { color: '#9A3412', bg: '#FFF7ED', border: '#FED7AA' },
+    { color: '#155E75', bg: '#ECFEFF', border: '#A5F3FC' },
 ];
 
-// Same palette reused for sources (deterministic by index)
-const SOURCE_COLORS = [
-    { color: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
-    { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
-    { color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-    { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
-    { color: '#065F46', bg: '#F0FDF4', border: '#BBF7D0' },
-    { color: '#BE123C', bg: '#FFF1F2', border: '#FECDD3' },
-    { color: '#1E40AF', bg: '#EFF6FF', border: '#BFDBFE' },
-    { color: '#6B21A8', bg: '#FAF5FF', border: '#DDD6FE' },
-    { color: '#374151', bg: '#F9FAFB', border: '#E5E7EB' },
-];
-
-const STAGE_LABELS: Record<string, string> = {
-    fresh:     '🆕 Fresh',
-    contacted: '📞 Contacted',
-    reminder:  '⏰ Reminder',
-    revisit:   '🔄 Revisit',
+const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
+    'new':                     { color: '#0369A1', bg: '#E0F2FE' },
+    'contacted':               { color: '#7C3AED', bg: '#EDE9FE' },
+    'converted:Marked to HT':  { color: '#065F46', bg: '#D1FAE5' },
+    'converted:Marked to EC':  { color: '#1E40AF', bg: '#DBEAFE' },
+    'converted:Marked to VC':  { color: '#92400E', bg: '#FEF3C7' },
+    'dropped':                 { color: '#991B1B', bg: '#FEE2E2' },
 };
 
-const BUCKET_COLORS = ['#22C55E', '#84CC16', '#FBBF24', '#F97316', '#EF4444'];
-const BUCKET_BG     = ['#F0FDF4', '#F7FEE7', '#FFFBEB', '#FFF7ED', '#FEF2F2'];
-const CELL_W = 72;
+const DAY_NAMES   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const agingColor = (days: number) => {
-    if (days <= 3)  return '#22C55E';
-    if (days <= 7)  return '#84CC16';
-    if (days <= 14) return '#FBBF24';
-    if (days <= 30) return '#F97316';
-    return '#EF4444';
+const formatDay = (dateStr: string): { weekday: string; date: string } => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return { weekday: DAY_NAMES[dt.getDay()], date: `${d} ${MONTH_NAMES[m - 1]}` };
 };
 
-// ── Shared Grid Component ─────────────────────────────────────────────────────
+const DAY_COL_W = 70;
+const LABEL_W   = 152;
 
-const AgingGrid = ({
-    label, color, border, total, avgAgingDays, buckets, stages,
+// ── Shared Grid Card ──────────────────────────────────────────────────────────
+
+const DayGrid = ({
+    title, subtitle, grandTotal,
+    color, bg, border, emoji,
+    statusRows, dayTotals, days, today,
 }: {
-    label: string; color: string; border: string; bg: string;
-    total: number; avgAgingDays: number;
-    buckets: string[]; stages: StageRow[];
+    title: string; subtitle: string; grandTotal: number;
+    color: string; bg: string; border: string; emoji?: string;
+    statusRows: StatusRow[]; dayTotals: number[];
+    days: string[]; today: string;
 }) => (
-    <Card mode="elevated" elevation={1} style={styles.gridCard}>
-        <View style={[styles.gridHeader, { borderBottomColor: border, borderLeftColor: color, borderLeftWidth: 4 }]}>
+    <Card mode="elevated" elevation={2} style={[styles.catCard, { borderLeftColor: color, borderLeftWidth: 5 }]}>
+        {/* Card header */}
+        <View style={[styles.catHeader, { backgroundColor: bg, borderBottomColor: border }]}>
             <View style={{ flex: 1 }}>
-                <Text style={[styles.gridTitle, { color }]}>{label}</Text>
+                <Text style={[styles.catTitle, { color }]}>{emoji ? `${emoji}  ` : ''}{title}</Text>
+                <Text style={styles.catSubtitle}>{subtitle}</Text>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.avgAging, { color: agingColor(avgAgingDays) }]}>{avgAgingDays}d avg</Text>
-                <Text style={styles.totalBadge}>{total} leads</Text>
+            <View style={[styles.grandBadge, { backgroundColor: color }]}>
+                <Text style={styles.grandBadgeText}>{grandTotal}</Text>
             </View>
         </View>
 
-        <ScrollView horizontal>
+        {/* Scrollable grid */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View>
                 {/* Column headers */}
-                <View style={[styles.gridRow, { backgroundColor: '#F9FAFB' }]}>
-                    <View style={[styles.stageCell, styles.headerBorderBottom]}>
-                        <Text style={styles.headerText}>Stage</Text>
+                <View style={[styles.gridRow, { backgroundColor: '#F8FAFC' }]}>
+                    <View style={[styles.labelCell, styles.headerCell]}>
+                        <Text style={styles.headerText}>Status</Text>
                     </View>
-                    {buckets.map((b, i) => (
-                        <View key={b} style={[styles.bucketHeaderCell, { width: CELL_W, backgroundColor: BUCKET_BG[i], borderBottomColor: BUCKET_COLORS[i] }]}>
-                            <Text style={[styles.bucketHeaderText, { color: BUCKET_COLORS[i] }]}>{b}</Text>
-                        </View>
-                    ))}
-                    <View style={[styles.totalHeaderCell, { width: CELL_W }]}>
+                    {days.map(day => {
+                        const isToday = day === today;
+                        const { weekday, date } = formatDay(day);
+                        return (
+                            <View
+                                key={day}
+                                style={[
+                                    styles.dayHeaderCell,
+                                    isToday && { backgroundColor: bg, borderBottomColor: color, borderBottomWidth: 3 },
+                                ]}
+                            >
+                                <Text style={[styles.dayWeekday, isToday && { color, fontWeight: '800' }]}>{weekday}</Text>
+                                <Text style={[styles.dayDate,    isToday && { color, fontWeight: '800' }]}>{date}</Text>
+                                {isToday && <View style={[styles.todayPip, { backgroundColor: color }]} />}
+                            </View>
+                        );
+                    })}
+                    <View style={styles.totalHeaderCell}>
                         <Text style={styles.headerText}>Total</Text>
                     </View>
                 </View>
 
-                {/* Stage rows */}
-                {stages.map((stage, ri) => (
-                    <View key={stage.stage} style={[styles.gridRow, { backgroundColor: ri % 2 === 0 ? '#fff' : '#FAFAFA' }]}>
-                        <View style={styles.stageCell}>
-                            <Text style={styles.stageLabel}>{STAGE_LABELS[stage.stage] ?? stage.stage}</Text>
-                        </View>
-                        {stage.bucketCounts.map((count, i) => (
-                            <View key={i} style={[styles.countCell, { width: CELL_W }]}>
-                                <Text style={[styles.countText, count > 0 && { color: BUCKET_COLORS[i], fontWeight: '700' }]}>
-                                    {count > 0 ? count : '—'}
+                {/* Status rows */}
+                {statusRows.map((row, ri) => {
+                    const sStyle = STATUS_STYLE[row.status] ?? { color: '#374151', bg: '#F9FAFB' };
+                    return (
+                        <View key={row.status} style={[styles.gridRow, { backgroundColor: ri % 2 === 0 ? '#FFFFFF' : '#FAFAFA' }]}>
+                            <View style={styles.labelCell}>
+                                <View style={[styles.statusPill, { backgroundColor: sStyle.bg }]}>
+                                    <Text style={[styles.statusLabel, { color: sStyle.color }]}>{row.label}</Text>
+                                </View>
+                            </View>
+                            {row.dayCounts.map((count, di) => {
+                                const isToday = days[di] === today;
+                                return (
+                                    <View key={di} style={[styles.dataCell, isToday && { backgroundColor: `${bg}CC` }]}>
+                                        {count > 0
+                                            ? <Text style={[styles.dataCellCount, { color: sStyle.color }]}>{count}</Text>
+                                            : <Text style={styles.dataCellZero}>—</Text>
+                                        }
+                                    </View>
+                                );
+                            })}
+                            <View style={[styles.dataCell, styles.rowTotalCell]}>
+                                <Text style={[styles.dataCellCount, { color, fontWeight: '800' }]}>
+                                    {row.rowTotal > 0 ? row.rowTotal : '—'}
                                 </Text>
                             </View>
-                        ))}
-                        <View style={[styles.countCell, { width: CELL_W, backgroundColor: '#F5F3FF' }]}>
-                            <Text style={[styles.countText, { color, fontWeight: '800' }]}>{stage.total}</Text>
                         </View>
-                    </View>
-                ))}
+                    );
+                })}
 
                 {/* Footer totals */}
-                <View style={[styles.gridRow, { backgroundColor: '#F3F4F6', borderTopWidth: 2, borderTopColor: '#E5E7EB' }]}>
-                    <View style={styles.stageCell}>
-                        <Text style={[styles.stageLabel, { fontWeight: '800', color: '#111827' }]}>TOTAL</Text>
+                <View style={[styles.gridRow, styles.footerRow]}>
+                    <View style={[styles.labelCell, styles.footerLabelCell]}>
+                        <Text style={[styles.footerLabel, { color }]}>TOTAL</Text>
                     </View>
-                    {buckets.map((_, i) => {
-                        const colTotal = stages.reduce((s, st) => s + (st.bucketCounts[i] ?? 0), 0);
+                    {dayTotals.map((total, di) => {
+                        const isToday = days[di] === today;
                         return (
-                            <View key={i} style={[styles.countCell, { width: CELL_W, backgroundColor: BUCKET_BG[i] }]}>
-                                <Text style={[styles.countText, { color: BUCKET_COLORS[i], fontWeight: '800' }]}>
-                                    {colTotal > 0 ? colTotal : '—'}
-                                </Text>
+                            <View key={di} style={[styles.dataCell, styles.footerCell, isToday && { backgroundColor: bg }]}>
+                                <Text style={[styles.footerCount, { color }]}>{total > 0 ? total : '—'}</Text>
                             </View>
                         );
                     })}
-                    <View style={[styles.countCell, { width: CELL_W, backgroundColor: '#EDE9FE' }]}>
-                        <Text style={[styles.countText, { color, fontWeight: '800' }]}>{total}</Text>
+                    <View style={[styles.dataCell, styles.footerCell, styles.grandTotalCell, { backgroundColor: bg }]}>
+                        <Text style={[styles.footerCount, { color, fontSize: 16 }]}>{grandTotal}</Text>
                     </View>
                 </View>
             </View>
@@ -177,100 +197,123 @@ const AgingGrid = ({
     </Card>
 );
 
-// ── Summary Card ──────────────────────────────────────────────────────────────
+// ── Category Summary Strip ────────────────────────────────────────────────────
 
-const SummaryCard = ({
-    label, color, bg, border, total, avgAgingDays, stages,
-}: {
-    label: string; color: string; bg: string; border: string;
-    total: number; avgAgingDays: number; stages: StageRow[];
-}) => {
-    const fresh     = stages.find(s => s.stage === 'fresh')?.total     ?? 0;
-    const contacted = stages.find(s => s.stage === 'contacted')?.total ?? 0;
-    const reminder  = stages.find(s => s.stage === 'reminder')?.total  ?? 0;
-    const revisit   = stages.find(s => s.stage === 'revisit')?.total   ?? 0;
-
-    return (
-        <Surface style={[styles.summaryCard, { borderColor: border, backgroundColor: bg }]} elevation={1}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.catLabel, { color }]} numberOfLines={1}>{label}</Text>
-                    <Text style={styles.totalCount}>{total.toLocaleString()}</Text>
-                    <Text style={styles.totalSub}>active leads</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[styles.avgAgingLarge, { color: agingColor(avgAgingDays) }]}>{avgAgingDays}d</Text>
-                    <Text style={styles.totalSub}>avg aging</Text>
-                </View>
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
-                {[
-                    { label: '🆕', count: fresh },
-                    { label: '📞', count: contacted },
-                    { label: '⏰', count: reminder },
-                    { label: '🔄', count: revisit },
-                ].map((p, i) => (
-                    <View key={i} style={styles.stagePill}>
-                        <Text style={styles.stagePillText}>{p.label} <Text style={{ fontWeight: '700' }}>{p.count}</Text></Text>
+const CategorySummaryStrip = ({ categories }: { categories: CategoryReport[] }) => (
+    <View style={styles.summaryStrip}>
+        {categories.map(cat => {
+            const meta    = CATEGORY_META[cat.category] ?? CATEGORY_META.OTHER;
+            const fresh   = cat.statusRows.find(r => r.status === 'new')?.rowTotal ?? 0;
+            const contact = cat.statusRows.find(r => r.status === 'contacted')?.rowTotal ?? 0;
+            const booked  = cat.statusRows.find(r => r.status.startsWith('converted:'))?.rowTotal ?? 0;
+            const dropped = cat.statusRows.find(r => r.status === 'dropped')?.rowTotal ?? 0;
+            return (
+                <View key={cat.category} style={[styles.summaryCard, { borderColor: meta.border, backgroundColor: meta.bg }]}>
+                    <Text style={[styles.summaryTitle, { color: meta.color }]}>{meta.emoji} {meta.label}</Text>
+                    <Text style={styles.summaryGrand}>{cat.grandTotal}</Text>
+                    <View style={styles.summaryPills}>
+                        {[
+                            { label: '🆕', val: fresh,   color: '#0369A1' },
+                            { label: '📞', val: contact, color: '#7C3AED' },
+                            { label: '✅', val: booked,  color: meta.color },
+                            { label: '🚫', val: dropped, color: '#991B1B' },
+                        ].map((p, i) => (
+                            <View key={i} style={styles.summaryPill}>
+                                <Text style={[styles.summaryPillText, { color: p.color }]}>{p.label} {p.val}</Text>
+                            </View>
+                        ))}
                     </View>
-                ))}
-            </View>
-        </Surface>
-    );
-};
+                </View>
+            );
+        })}
+    </View>
+);
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Caller Summary Strip ──────────────────────────────────────────────────────
+
+const CallerSummaryStrip = ({ callers }: { callers: CallerReport[] }) => (
+    <View style={styles.summaryStrip}>
+        {callers.map((caller, idx) => {
+            const isUnassigned = caller.callerId === '__unassigned__';
+            const palette = isUnassigned
+                ? { color: '#6B7280', bg: '#F9FAFB', border: '#D1D5DB' }
+                : CALLER_PALETTE[idx % CALLER_PALETTE.length];
+            const fresh   = caller.statusRows.find(r => r.status === 'new')?.rowTotal ?? 0;
+            const contact = caller.statusRows.find(r => r.status === 'contacted')?.rowTotal ?? 0;
+            const booked  = caller.statusRows.filter(r => r.status.startsWith('converted:')).reduce((s, r) => s + r.rowTotal, 0);
+            const dropped = caller.statusRows.find(r => r.status === 'dropped')?.rowTotal ?? 0;
+            return (
+                <View key={caller.callerId} style={[styles.summaryCard, { borderColor: palette.border, backgroundColor: palette.bg }]}>
+                    <Text style={[styles.summaryTitle, { color: palette.color }]} numberOfLines={1}>
+                        {isUnassigned ? '⚠️ Unassigned' : `👤 ${caller.callerName}`}
+                    </Text>
+                    <Text style={styles.summaryGrand}>{caller.grandTotal}</Text>
+                    <View style={styles.summaryPills}>
+                        {[
+                            { label: '🆕', val: fresh,   color: '#0369A1' },
+                            { label: '📞', val: contact, color: '#7C3AED' },
+                            { label: '✅', val: booked,  color: palette.color },
+                            { label: '🚫', val: dropped, color: '#991B1B' },
+                        ].map((p, i) => (
+                            <View key={i} style={styles.summaryPill}>
+                                <Text style={[styles.summaryPillText, { color: p.color }]}>{p.label} {p.val}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            );
+        })}
+    </View>
+);
+
+// ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function AgingDashboardScreen() {
-    const [tab, setTab] = useState<'category' | 'caller' | 'source'>('category');
-    const [catData,    setCatData]    = useState<CategoryData[]>([]);
-    const [callerData, setCallerData] = useState<CallerData[]>([]);
-    const [sourceData, setSourceData] = useState<SourceData[]>([]);
+    const [tab, setTab] = useState<'category' | 'caller'>('category');
+
+    const [catData,    setCatData]    = useState<DailyAgingData | null>(null);
+    const [callerData, setCallerData] = useState<DailyCallerData | null>(null);
     const [loading,    setLoading]    = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const fetchAll = useCallback(async () => {
+    const fetchData = useCallback(async () => {
         try {
-            const [catRes, callerRes, sourceRes] = await Promise.all([
-                api.get('/leads/aging-dashboard'),
-                api.get('/leads/caller-aging-dashboard'),
-                api.get('/leads/source-aging-dashboard'),
+            const [catRes, callerRes] = await Promise.all([
+                api.get('/leads/daily-aging-report'),
+                api.get('/leads/daily-caller-report'),
             ]);
-            setCatData(catRes.data.categories ?? []);
-            setCallerData(callerRes.data.callers ?? []);
-            setSourceData(sourceRes.data.sources ?? []);
+            setCatData(catRes.data);
+            setCallerData(callerRes.data);
             setLastUpdated(new Date());
         } catch (err) {
-            console.error('Aging dashboard fetch failed:', err);
+            console.error('Daily report fetch failed:', err);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
     }, []);
 
-    useEffect(() => { fetchAll(); }, [fetchAll]);
+    useEffect(() => { fetchData(); }, [fetchData]);
+    const onRefresh = () => { setRefreshing(true); fetchData(); };
 
-    const onRefresh = () => { setRefreshing(true); fetchAll(); };
+    const activeData = tab === 'category' ? catData : callerData;
+    const grandTotal = tab === 'category'
+        ? (catData?.categories ?? []).reduce((s, c) => s + c.grandTotal, 0)
+        : (callerData?.callers ?? []).reduce((s, c) => s + c.grandTotal, 0);
 
-    const catGrandTotal    = catData.reduce((s, c) => s + c.total, 0);
-    const callerGrandTotal = callerData.reduce((s, c) => s + c.total, 0);
-    const sourceGrandTotal = sourceData.reduce((s, c) => s + c.total, 0);
-    const grandTotal = tab === 'category' ? catGrandTotal : tab === 'caller' ? callerGrandTotal : sourceGrandTotal;
-    const breadcrumb = tab === 'category'
-        ? `${catData.length} categories`
-        : tab === 'caller'
-        ? `${callerData.length} callers`
-        : `${sourceData.length} sources`;
+    const subtitle = tab === 'category'
+        ? `${catData?.categories.length ?? 0} categories`
+        : `${callerData?.callers.length ?? 0} callers`;
 
     return (
         <AdminPageLayout>
             {/* Page Header */}
             <View style={styles.pageHeader}>
-                <View>
-                    <Text style={styles.pageTitle}>📊 Aging Report</Text>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.pageTitle}>📅 Daily Lead Report</Text>
                     <Text style={styles.pageSubtitle}>
-                        {grandTotal.toLocaleString()} active leads · {breadcrumb}
+                        Last 7 days · {grandTotal.toLocaleString()} leads · {subtitle}
                         {lastUpdated && (
                             <Text style={{ color: '#9CA3AF' }}> · {lastUpdated.toLocaleTimeString()}</Text>
                         )}
@@ -286,138 +329,98 @@ export default function AgingDashboardScreen() {
                 value={tab}
                 onValueChange={v => setTab(v as any)}
                 buttons={[
-                    { value: 'category', label: '🏷️  By Category', icon: 'tag-multiple' },
-                    { value: 'caller',   label: '📞  By Caller',   icon: 'phone-in-talk' },
-                    { value: 'source',   label: '🌐  By Source',   icon: 'web' },
+                    { value: 'category', label: '🏷️  By Category', icon: 'tag-multiple'  },
+                    { value: 'caller',   label: '👤  By Caller',   icon: 'phone-in-talk' },
                 ]}
-                style={{ marginBottom: 16, alignSelf: 'flex-start', minWidth: 500 }}
+                style={{ marginBottom: 16, alignSelf: 'flex-start', minWidth: 380 }}
             />
 
-            {/* Bucket legend */}
+            {/* Legend */}
             <View style={styles.legend}>
-                <Text style={styles.legendTitle}>Aging:</Text>
-                {['0-3d', '4-7d', '8-14d', '15-30d', '30d+'].map((b, i) => (
-                    <View key={b} style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: BUCKET_COLORS[i] }]} />
-                        <Text style={styles.legendText}>{b}</Text>
+                <Text style={styles.legendTitle}>Status:</Text>
+                {[
+                    { label: '🆕 Fresh',       color: '#0369A1' },
+                    { label: '📞 Contacted',   color: '#7C3AED' },
+                    { label: '✅ Booked',       color: '#065F46' },
+                    { label: '🚫 Dropped',     color: '#991B1B' },
+                ].map(l => (
+                    <View key={l.label} style={[styles.legendItem, { borderColor: l.color + '40' }]}>
+                        <Text style={[styles.legendText, { color: l.color }]}>{l.label}</Text>
                     </View>
                 ))}
             </View>
 
             {loading ? (
-                <ActivityIndicator size="large" style={{ marginTop: 60 }} />
+                <View style={{ alignItems: 'center', marginTop: 80 }}>
+                    <ActivityIndicator size="large" color={Colors.primary} />
+                    <Text style={{ color: Colors.textSecondary, marginTop: 16 }}>Loading report…</Text>
+                </View>
+            ) : !activeData ? (
+                <View style={styles.empty}>
+                    <Text style={styles.emptyText}>📭 No data available</Text>
+                </View>
             ) : (
                 <ScrollView
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={{ gap: 20, paddingBottom: 40 }}
                 >
-                    {tab === 'category' ? (
+                    {tab === 'category' && catData ? (
                         <>
-                            {/* Category summary cards */}
-                            <View style={styles.summaryRow}>
-                                {catData.map(cat => {
-                                    const meta = CATEGORY_META[cat.category] ?? CATEGORY_META.OTHER;
-                                    return (
-                                        <SummaryCard
-                                            key={cat.category}
-                                            label={meta.label}
-                                            color={meta.color}
-                                            bg={meta.bg}
-                                            border={meta.border}
-                                            total={cat.total}
-                                            avgAgingDays={cat.avgAgingDays}
-                                            stages={cat.stages}
-                                        />
-                                    );
-                                })}
-                            </View>
-                            {/* Category grids */}
-                            {catData.map(cat => {
+                            <CategorySummaryStrip categories={catData.categories} />
+                            {catData.categories.length === 0 ? (
+                                <View style={styles.empty}>
+                                    <Text style={styles.emptyText}>📭 No leads in the last 7 days</Text>
+                                </View>
+                            ) : catData.categories.map(cat => {
                                 const meta = CATEGORY_META[cat.category] ?? CATEGORY_META.OTHER;
                                 return (
-                                    <AgingGrid key={cat.category}
-                                        label={meta.label} color={meta.color}
-                                        bg={meta.bg} border={meta.border}
-                                        total={cat.total} avgAgingDays={cat.avgAgingDays}
-                                        buckets={cat.buckets} stages={cat.stages}
+                                    <DayGrid
+                                        key={cat.category}
+                                        title={meta.label}
+                                        emoji={meta.emoji}
+                                        subtitle={`${cat.grandTotal} leads in last 7 days`}
+                                        grandTotal={cat.grandTotal}
+                                        color={meta.color} bg={meta.bg} border={meta.border}
+                                        statusRows={cat.statusRows}
+                                        dayTotals={cat.dayTotals}
+                                        days={catData.days}
+                                        today={catData.today}
                                     />
                                 );
                             })}
                         </>
-                    ) : tab === 'caller' ? (
+                    ) : callerData ? (
                         <>
-                            {/* Caller summary cards */}
-                            <View style={styles.summaryRow}>
-                                {callerData.map((caller, idx) => {
-                                    const meta = caller.callerId === '__unassigned__'
-                                        ? { color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' }
-                                        : CALLER_COLORS[idx % CALLER_COLORS.length];
-                                    const icon = caller.callerId === '__unassigned__' ? '⚠️ Unassigned' : `👤 ${caller.callerName}`;
-                                    return (
-                                        <SummaryCard
-                                            key={caller.callerId}
-                                            label={icon}
-                                            color={meta.color}
-                                            bg={meta.bg}
-                                            border={meta.border}
-                                            total={caller.total}
-                                            avgAgingDays={caller.avgAgingDays}
-                                            stages={caller.stages}
-                                        />
-                                    );
-                                })}
-                            </View>
-                            {/* Caller grids */}
-                            {callerData.map((caller, idx) => {
-                                const meta = caller.callerId === '__unassigned__'
-                                    ? { color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' }
-                                    : CALLER_COLORS[idx % CALLER_COLORS.length];
-                                const icon = caller.callerId === '__unassigned__' ? '⚠️ Unassigned' : `👤 ${caller.callerName}`;
+                            <CallerSummaryStrip callers={callerData.callers} />
+                            {callerData.callers.length === 0 ? (
+                                <View style={styles.empty}>
+                                    <Text style={styles.emptyText}>📭 No leads assigned in the last 7 days</Text>
+                                </View>
+                            ) : callerData.callers.map((caller, idx) => {
+                                const isUnassigned = caller.callerId === '__unassigned__';
+                                const palette = isUnassigned
+                                    ? { color: '#6B7280', bg: '#F9FAFB', border: '#D1D5DB' }
+                                    : CALLER_PALETTE[idx % CALLER_PALETTE.length];
+                                const title = isUnassigned ? 'Unassigned' : caller.callerName;
+                                const emoji = isUnassigned ? '⚠️' : '👤';
                                 return (
-                                    <AgingGrid key={caller.callerId}
-                                        label={icon} color={meta.color}
-                                        bg={meta.bg} border={meta.border}
-                                        total={caller.total} avgAgingDays={caller.avgAgingDays}
-                                        buckets={caller.buckets} stages={caller.stages}
+                                    <DayGrid
+                                        key={caller.callerId}
+                                        title={title}
+                                        emoji={emoji}
+                                        subtitle={`${caller.grandTotal} leads in last 7 days`}
+                                        grandTotal={caller.grandTotal}
+                                        color={palette.color} bg={palette.bg} border={palette.border}
+                                        statusRows={caller.statusRows}
+                                        dayTotals={caller.dayTotals}
+                                        days={callerData.days}
+                                        today={callerData.today}
                                     />
                                 );
                             })}
                         </>
-                    ) : (
-                        <>
-                            {/* Source summary cards */}
-                            <View style={styles.summaryRow}>
-                                {sourceData.map((src, idx) => {
-                                    const meta = SOURCE_COLORS[idx % SOURCE_COLORS.length];
-                                    return (
-                                        <SummaryCard
-                                            key={src.source}
-                                            label={`🌐 ${src.source}`}
-                                            color={meta.color}
-                                            bg={meta.bg}
-                                            border={meta.border}
-                                            total={src.total}
-                                            avgAgingDays={src.avgAgingDays}
-                                            stages={src.stages}
-                                        />
-                                    );
-                                })}
-                            </View>
-                            {/* Source grids */}
-                            {sourceData.map((src, idx) => {
-                                const meta = SOURCE_COLORS[idx % SOURCE_COLORS.length];
-                                return (
-                                    <AgingGrid key={src.source}
-                                        label={`🌐 ${src.source}`} color={meta.color}
-                                        bg={meta.bg} border={meta.border}
-                                        total={src.total} avgAgingDays={src.avgAgingDays}
-                                        buckets={src.buckets} stages={src.stages}
-                                    />
-                                );
-                            })}
-                        </>
-                    )}
+                    ) : null}
                 </ScrollView>
             )}
         </AdminPageLayout>
@@ -431,47 +434,94 @@ const styles = StyleSheet.create({
         flexDirection: 'row', justifyContent: 'space-between',
         alignItems: 'flex-start', marginBottom: 14,
     },
-    pageTitle: { fontSize: 22, fontWeight: '800', color: Colors.text },
+    pageTitle:    { fontSize: 22, fontWeight: '800', color: Colors.text },
     pageSubtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
 
-    legend: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
+    legend: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
     legendTitle: { fontSize: 12, fontWeight: '700', color: '#6B7280' },
-    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    legendDot: { width: 10, height: 10, borderRadius: 5 },
-    legendText: { fontSize: 12, color: '#374151', fontWeight: '600' },
+    legendItem: {
+        borderRadius: 20, borderWidth: 1,
+        paddingHorizontal: 10, paddingVertical: 3,
+    },
+    legendText: { fontSize: 12, fontWeight: '600' },
 
-    // Summary cards
-    summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-    summaryCard: { borderRadius: 12, borderWidth: 1.5, padding: 14, minWidth: 175, flex: 1 },
-    catLabel: { fontSize: 13, fontWeight: '700', marginBottom: 4 },
-    totalCount: { fontSize: 30, fontWeight: '900', color: '#111827', lineHeight: 38 },
-    totalSub: { fontSize: 11, color: '#9CA3AF' },
-    avgAgingLarge: { fontSize: 26, fontWeight: '900', lineHeight: 32 },
-    stagePill: {
-        backgroundColor: '#fff', borderRadius: 20,
-        paddingHorizontal: 9, paddingVertical: 2,
+    summaryStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+    summaryCard: {
+        flex: 1, minWidth: 150, borderRadius: 14,
+        borderWidth: 1.5, padding: 14,
+    },
+    summaryTitle: { fontSize: 13, fontWeight: '800', marginBottom: 2 },
+    summaryGrand: { fontSize: 34, fontWeight: '900', color: '#111827', lineHeight: 42 },
+    summaryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 },
+    summaryPill: {
+        backgroundColor: '#FFFFFF', borderRadius: 20,
+        paddingHorizontal: 8, paddingVertical: 2,
         borderWidth: 1, borderColor: '#E5E7EB',
     },
-    stagePillText: { fontSize: 11, color: '#374151' },
+    summaryPillText: { fontSize: 11, fontWeight: '700' },
 
-    // Grid
-    gridCard: { borderRadius: 12, overflow: 'hidden' },
-    gridHeader: {
+    catCard: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#FFFFFF' },
+    catHeader: {
         flexDirection: 'row', alignItems: 'center',
-        padding: 14, borderBottomWidth: 2,
+        paddingHorizontal: 16, paddingVertical: 12,
+        borderBottomWidth: 1.5,
     },
-    gridTitle: { fontSize: 15, fontWeight: '800' },
-    avgAging: { fontSize: 16, fontWeight: '800' },
-    totalBadge: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+    catTitle:    { fontSize: 17, fontWeight: '900' },
+    catSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+    grandBadge: {
+        borderRadius: 24, paddingHorizontal: 14, paddingVertical: 6,
+        minWidth: 52, alignItems: 'center',
+    },
+    grandBadgeText: { color: '#FFFFFF', fontWeight: '900', fontSize: 18 },
 
     gridRow: { flexDirection: 'row', alignItems: 'center' },
-    stageCell: { width: 145, paddingVertical: 10, paddingHorizontal: 14, borderRightWidth: 1, borderRightColor: '#E5E7EB' },
-    headerBorderBottom: { borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-    stageLabel: { fontSize: 13, fontWeight: '600', color: '#374151' },
-    bucketHeaderCell: { paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center', borderBottomWidth: 3, borderRightWidth: 1, borderRightColor: '#E5E7EB' },
-    bucketHeaderText: { fontSize: 12, fontWeight: '800' },
-    totalHeaderCell: { paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center', backgroundColor: '#F5F3FF' },
-    headerText: { fontSize: 12, fontWeight: '700', color: '#6B7280' },
-    countCell: { paddingVertical: 10, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#F3F4F6' },
-    countText: { fontSize: 14, color: '#9CA3AF', fontWeight: '500' },
+    labelCell: {
+        width: LABEL_W,
+        paddingVertical: 10, paddingHorizontal: 12,
+        borderRightWidth: 1, borderRightColor: '#E5E7EB',
+        justifyContent: 'center',
+    },
+    headerCell: { backgroundColor: '#F8FAFC', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+    headerText: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+    dayHeaderCell: {
+        width: DAY_COL_W,
+        paddingVertical: 8, paddingHorizontal: 4,
+        alignItems: 'center',
+        borderBottomWidth: 2, borderBottomColor: '#E5E7EB',
+        borderRightWidth: 1, borderRightColor: '#E5E7EB',
+        backgroundColor: '#F8FAFC',
+    },
+    dayWeekday: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase' },
+    dayDate:    { fontSize: 12, fontWeight: '600', color: '#374151', marginTop: 1 },
+    todayPip:   { width: 6, height: 6, borderRadius: 3, marginTop: 3 },
+    totalHeaderCell: {
+        width: DAY_COL_W, paddingVertical: 8, alignItems: 'center',
+        backgroundColor: '#F5F3FF',
+        borderBottomWidth: 2, borderBottomColor: '#C4B5FD',
+    },
+
+    statusPill: {
+        borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start',
+    },
+    statusLabel: { fontSize: 12, fontWeight: '700' },
+
+    dataCell: {
+        width: DAY_COL_W, paddingVertical: 10,
+        alignItems: 'center',
+        borderRightWidth: 1, borderRightColor: '#F3F4F6',
+    },
+    dataCellCount: { fontSize: 16, fontWeight: '800' },
+    dataCellZero:  { fontSize: 14, color: '#D1D5DB', fontWeight: '500' },
+    rowTotalCell:  { backgroundColor: '#F5F3FF' },
+
+    footerRow:       { borderTopWidth: 2, borderTopColor: '#E5E7EB' },
+    footerLabelCell: { backgroundColor: '#F3F4F6' },
+    footerLabel:     { fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+    footerCell:      { backgroundColor: '#F3F4F6' },
+    footerCount:     { fontSize: 14, fontWeight: '800' },
+    grandTotalCell:  { borderLeftWidth: 2, borderLeftColor: '#DDD6FE' },
+
+    empty: { alignItems: 'center', marginTop: 80 },
+    emptyText: { fontSize: 16, color: Colors.textSecondary },
 });
