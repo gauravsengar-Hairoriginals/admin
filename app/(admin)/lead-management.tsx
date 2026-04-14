@@ -712,7 +712,7 @@ export default function LeadManagementScreen() {
     const [leads, setLeads] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState<'all' | 'fresh' | 'reminder' | 'revisit' | 'converted' | 'dropped'>('all');
+    const [filter, setFilter] = useState<'all' | 'fresh' | 'reminder' | 'revisit' | 'bookedEC' | 'bookedHT' | 'bookedVC' | 'dropped'>('all');
     const [products, setProducts] = useState<{ id: string; title: string; options: { name: string; values: string[] }[] }[]>([]);
     const [experienceCenters, setExperienceCenters] = useState<any[]>([]);
     const [fieldAgents, setFieldAgents] = useState<any[]>([]);
@@ -997,7 +997,9 @@ export default function LeadManagementScreen() {
         { key: 'fresh', label: 'Fresh', count: tabCounts.fresh || 0, color: '#0369A1', bg: '#E0F2FE' },
         { key: 'reminder', label: '🔔 Reminder', count: tabCounts.reminder || 0, color: '#B45309', bg: '#FEF3C7' },
         { key: 'revisit', label: '🔄 Revisit', count: tabCounts.revisit || 0, color: '#7C3AED', bg: '#F5F3FF' },
-        { key: 'converted', label: '✅ Converted', count: tabCounts.converted || 0, color: '#16A34A', bg: '#F0FDF4' },
+        { key: 'bookedEC', label: '✅ Booked EC', count: tabCounts.bookedEC || 0, color: '#16A34A', bg: '#F0FDF4' },
+        { key: 'bookedHT', label: '✅ Booked HT', count: tabCounts.bookedHT || 0, color: '#15803D', bg: '#DCFCE7' },
+        { key: 'bookedVC', label: '✅ Booked VC', count: tabCounts.bookedVC || 0, color: '#166534', bg: '#BBF7D0' },
         { key: 'dropped', label: '🚫 Dropped', count: tabCounts.dropped || 0, color: '#9CA3AF', bg: '#F3F4F6' },
     ] as const;
 
