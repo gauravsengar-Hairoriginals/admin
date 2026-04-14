@@ -205,7 +205,7 @@ function ReassignLeadModal({
         setSaving(true);
         setError('');
         try {
-            await api.patch(`/leads/${lead.id}`, { assignedToId: targetId });
+            await api.patch(`/leads/${lead.id}/assign`, { callerId: targetId });
             onDone();
             onClose();
         } catch (e: any) {
