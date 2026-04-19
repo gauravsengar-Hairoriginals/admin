@@ -145,6 +145,33 @@ const DayGrid = ({
                     </View>
                 </View>
 
+                {/* ── New Leads row (daily intake = sum of all statuses) */}
+                <View style={[styles.gridRow, styles.newLeadsRow]}>
+                    <View style={[styles.labelCell, { borderRightColor: '#6366F1' }]}>
+                        <View style={styles.newLeadsPill}>
+                            <Text style={styles.newLeadsLabel}>📥 New Leads</Text>
+                        </View>
+                    </View>
+                    {dayTotals.map((total, di) => {
+                        const isToday = days[di] === today;
+                        return (
+                            <View key={di} style={[styles.dataCell, styles.newLeadsCell, isToday && styles.newLeasdCellToday]}>
+                                {total > 0
+                                    ? <Text style={styles.newLeadsCount}>{total}</Text>
+                                    : <Text style={styles.dataCellZero}>—</Text>
+                                }
+                            </View>
+                        );
+                    })}
+                    {/* Row total */}
+                    <View style={[styles.dataCell, styles.newLeadsCell, { backgroundColor: '#4F46E5' }]}>
+                        <Text style={[styles.newLeadsCount, { color: '#FFFFFF' }]}>{grandTotal}</Text>
+                    </View>
+                </View>
+
+                {/* ── Divider between New Leads row and status rows */}
+                <View style={styles.newLeadsDivider} />
+
                 {/* Status rows */}
                 {statusRows.map((row, ri) => {
                     const sStyle = STATUS_STYLE[row.status] ?? { color: '#374151', bg: '#F9FAFB' };
@@ -524,4 +551,24 @@ const styles = StyleSheet.create({
 
     empty: { alignItems: 'center', marginTop: 80 },
     emptyText: { fontSize: 16, color: Colors.textSecondary },
+
+    // ── New Leads row
+    newLeadsRow: {
+        backgroundColor: '#EEF2FF',
+        borderTopWidth: 1, borderTopColor: '#C7D2FE',
+        borderBottomWidth: 0,
+    },
+    newLeadsPill: {
+        backgroundColor: '#4F46E5',
+        borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+        alignSelf: 'flex-start',
+    },
+    newLeadsLabel: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+    newLeadsCell:  { backgroundColor: '#EEF2FF' },
+    newLeasdCellToday: { backgroundColor: '#C7D2FE' },
+    newLeadsCount: { fontSize: 16, fontWeight: '900', color: '#4338CA' },
+    newLeadsDivider: {
+        height: 3, backgroundColor: '#C7D2FE',
+        marginBottom: 2,
+    },
 });
