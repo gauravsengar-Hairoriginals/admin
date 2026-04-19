@@ -86,6 +86,15 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
     const [error, setError] = useState('');
     const [callers, setCallers] = useState<any[]>([]);
 
+    // ── Phone lookup state ────────────────────────────────────────────────
+    const [lookupLoading, setLookupLoading] = useState(false);
+    const [existingLead, setExistingLead] = useState<{
+        customer: { id: string; name: string; city?: string; notes?: string; assignedToName?: string; assignedToId?: string };
+        latestLead?: { id: string; source?: string; status?: string; assignedToName?: string; assignedToId?: string };
+    } | null>(null);
+    const [isNewCustomer, setIsNewCustomer] = useState(false);
+    const lookupTimeoutRef = React.useRef<any>(null);
+
     useEffect(() => {
         if (visible) {
             api.get('/admin/lead-callers', { params: { activeOnly: true } })
@@ -94,10 +103,53 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
         }
     }, [visible]);
 
+    // ── Phone change handler — enforces 10 digits and triggers lookup ─────
+    const handlePhoneChange = (v: string) => {
+        // Only allow digits, max 10
+        const digits = v.replace(/\D/g, '').slice(0, 10);
+        setForm(f => ({ ...f, phone: digits }));
+        setExistingLead(null);
+        setIsNewCustomer(false);
+        setError('');
+
+        if (lookupTimeoutRef.current) clearTimeout(lookupTimeoutRef.current);
+
+        if (digits.length === 10) {
+            lookupTimeoutRef.current = setTimeout(() => doPhoneLookup(digits), 300);
+        }
+    };
+
+    const doPhoneLookup = async (phone: string) => {
+        setLookupLoading(true);
+        try {
+            const res = await api.get('/leads/check-phone', { params: { phone } });
+            if (res.data.exists) {
+                setExistingLead(res.data);
+                // Pre-populate fields from existing customer data
+                const c = res.data.customer;
+                const l = res.data.latestLead;
+                setForm(f => ({
+                    ...f,
+                    name: f.name || c.name || '',
+                    city: f.city || c.city || '',
+                    notes: f.notes || c.notes || '',
+                    source: f.source || l?.source || '',
+                    assignedToId: f.assignedToId || c.assignedToId || l?.assignedToId || '',
+                }));
+            } else {
+                setIsNewCustomer(true);
+            }
+        } catch (e) {
+            // silently fail lookup — don't block lead creation
+        } finally {
+            setLookupLoading(false);
+        }
+    };
+
     const handleSave = async () => {
         if (!form.phone.trim()) { setError('Phone number is required.'); return; }
-        if (!/^[0-9]{10}$/.test(form.phone.replace(/\D/g, '').slice(-10))) {
-            setError('Please enter a valid 10-digit mobile number.'); return;
+        if (form.phone.trim().length !== 10) {
+            setError('Please enter exactly 10 digits.'); return;
         }
         setLoading(true);
         setError('');
@@ -111,6 +163,8 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
                 assignedToId: form.assignedToId || undefined,
             });
             setForm({ name: '', phone: '', city: '', source: '', notes: '', assignedToId: '' });
+            setExistingLead(null);
+            setIsNewCustomer(false);
             onDone();
             onClose();
         } catch (e: any) {
@@ -124,8 +178,14 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
         setForm({ name: '', phone: '', city: '', source: '', notes: '', assignedToId: '' });
         setError('');
         setLoading(false);
+        setExistingLead(null);
+        setIsNewCustomer(false);
+        if (lookupTimeoutRef.current) clearTimeout(lookupTimeoutRef.current);
         onClose();
     };
+
+    const phoneDigits = form.phone.length;
+    const phoneComplete = phoneDigits === 10;
 
     return (
         <Portal>
@@ -134,14 +194,96 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
                 onDismiss={handleClose}
                 contentContainerStyle={{
                     backgroundColor: '#fff', borderRadius: 16, padding: 28,
-                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 480, width: '100%',
+                    marginHorizontal: 40, alignSelf: 'center', maxWidth: 500, width: '100%',
                     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
                     shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
                 }}
             >
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 16 }}>➕ Add New Lead</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20 }}>➕ Add New Lead</Text>
 
-                <TextInput label="Phone *" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} mode="outlined" keyboardType="phone-pad" style={{ marginBottom: 12 }} />
+                {/* ── Phone field — first, mandatory ── */}
+                <View style={{ marginBottom: 4 }}>
+                    <View style={{ position: 'relative' }}>
+                        <TextInput
+                            label="Phone Number *"
+                            value={form.phone}
+                            onChangeText={handlePhoneChange}
+                            mode="outlined"
+                            keyboardType="phone-pad"
+                            maxLength={10}
+                            style={{ marginBottom: 0 }}
+                            outlineColor={phoneComplete ? '#10B981' : '#79747E'}
+                            activeOutlineColor={phoneComplete ? '#10B981' : '#6366F1'}
+                            right={lookupLoading
+                                ? <TextInput.Icon icon="loading" />
+                                : phoneComplete
+                                    ? <TextInput.Icon icon="check-circle" color="#10B981" />
+                                    : undefined
+                            }
+                        />
+                    </View>
+                    {/* Digit counter */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, marginBottom: 8 }}>
+                        <Text style={{
+                            fontSize: 11, fontWeight: '600',
+                            color: phoneComplete ? '#10B981' : phoneDigits > 0 ? '#6366F1' : '#9CA3AF',
+                        }}>
+                            {phoneDigits}/10 digits
+                        </Text>
+                    </View>
+                </View>
+
+                {/* ── Existing customer banner ── */}
+                {existingLead && (
+                    <View style={{
+                        backgroundColor: '#F0FDF4', borderRadius: 10, padding: 14,
+                        borderWidth: 1.5, borderColor: '#86EFAC', marginBottom: 16,
+                        flexDirection: 'column', gap: 6,
+                    }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#15803D' }}>
+                                📋 Existing customer found
+                            </Text>
+                        </View>
+                        <Text style={{ fontSize: 13, color: '#166534', fontWeight: '600' }}>
+                            {existingLead.customer.name}
+                        </Text>
+                        {(existingLead.latestLead?.assignedToName || existingLead.customer.assignedToName) && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ fontSize: 12, color: '#166534' }}>📞 Caller:</Text>
+                                <View style={{ backgroundColor: '#BBF7D0', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#15803D' }}>
+                                        {existingLead.latestLead?.assignedToName || existingLead.customer.assignedToName}
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
+                        {existingLead.latestLead?.status && (
+                            <Text style={{ fontSize: 12, color: '#6B7280' }}>
+                                Latest lead status: <Text style={{ fontWeight: '700', color: '#374151' }}>
+                                    {existingLead.latestLead.status}
+                                </Text>
+                            </Text>
+                        )}
+                        <Text style={{ fontSize: 11, color: '#15803D', fontStyle: 'italic', marginTop: 2 }}>
+                            ↓ Fields pre-filled from existing data. You can still edit below.
+                        </Text>
+                    </View>
+                )}
+
+                {/* ── New customer indicator ── */}
+                {isNewCustomer && (
+                    <View style={{
+                        backgroundColor: '#EFF6FF', borderRadius: 10, padding: 10,
+                        borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 16,
+                        flexDirection: 'row', alignItems: 'center', gap: 6,
+                    }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#1D4ED8' }}>
+                            ✅ New customer — no prior record found
+                        </Text>
+                    </View>
+                )}
+
                 <TextInput label="Name" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} mode="outlined" style={{ marginBottom: 12 }} />
                 <TextInput label="City" value={form.city} onChangeText={v => setForm(f => ({ ...f, city: v }))} mode="outlined" style={{ marginBottom: 12 }} />
                 <TextInput label="Source" value={form.source} onChangeText={v => setForm(f => ({ ...f, source: v }))} mode="outlined" placeholder="e.g. Walk-in, Referral" style={{ marginBottom: 12 }} />
@@ -172,8 +314,13 @@ function AddLeadModal({ visible, onClose, onDone }: { visible: boolean; onClose:
 
                 <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
                     <Button mode="outlined" onPress={handleClose} disabled={loading}>Cancel</Button>
-                    <Button mode="contained" buttonColor="#4F46E5" textColor="#fff" onPress={handleSave} loading={loading} disabled={loading} style={{ borderRadius: 8 }}>
-                        Create Lead
+                    <Button
+                        mode="contained" buttonColor="#4F46E5" textColor="#fff"
+                        onPress={handleSave} loading={loading}
+                        disabled={loading || !phoneComplete}
+                        style={{ borderRadius: 8 }}
+                    >
+                        {existingLead ? 'Create New Lead' : 'Create Lead'}
                     </Button>
                 </View>
             </Modal>

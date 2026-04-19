@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Alert, TextInput as RNTextInput, Platform, Pressable } from 'react-native';
 import {
     Text,
@@ -470,6 +470,14 @@ export default function LeadsScreen() {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
 
+    // ─── Phone lookup (for new lead creation) ──────────────────────────
+    const [phoneLookupResult, setPhoneLookupResult] = useState<{
+        exists: boolean;
+        customer?: { id: string; name: string; city?: string; notes?: string; assignedToId?: string; assignedToName?: string };
+        latestLead?: { id: string; source?: string; status?: string; assignedToId?: string; assignedToName?: string };
+    } | null>(null);
+    const phoneLookupTimeoutRef = useRef<any>(null);
+
     // ─── Delete state ─────────────────────────────────────────────────────
     const [deleteTarget, setDeleteTarget] = useState<any>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
@@ -605,7 +613,37 @@ export default function LeadsScreen() {
         setEditingLead(null);
         setForm({ ...EMPTY_FORM });
         setFormError('');
+        setPhoneLookupResult(null);
+        if (phoneLookupTimeoutRef.current) clearTimeout(phoneLookupTimeoutRef.current);
         setModalVisible(true);
+    };
+
+    // ─── Phone change with digit enforcement + auto-lookup ────────────────
+    const handleAddPhoneChange = (v: string) => {
+        const digits = v.replace(/\D/g, '').slice(0, 10);
+        setForm(f => ({ ...f, phone: digits }));
+        setPhoneLookupResult(null);
+        setFormError('');
+        if (phoneLookupTimeoutRef.current) clearTimeout(phoneLookupTimeoutRef.current);
+        if (digits.length === 10) {
+            phoneLookupTimeoutRef.current = setTimeout(async () => {
+                try {
+                    const res = await api.get('/leads/check-phone', { params: { phone: digits } });
+                    setPhoneLookupResult(res.data);
+                    if (res.data.exists) {
+                        const c = res.data.customer;
+                        const l = res.data.latestLead;
+                        setForm(f => ({
+                            ...f,
+                            name: f.name || c.name || '',
+                            city: f.city || c.city || '',
+                            notes: f.notes || c.notes || '',
+                            source: f.source || l?.source || '',
+                        }));
+                    }
+                } catch (_) { /* silently ignore */ }
+            }, 350);
+        }
     };
 
     const openEditModal = (lead: any) => {
@@ -630,8 +668,13 @@ export default function LeadsScreen() {
     };
 
     const handleSave = async () => {
-        if (!form.name.trim() || !form.phone.trim()) {
-            setFormError('Name and phone are required.');
+        if (!form.phone.trim()) {
+            setFormError('Phone number is required.');
+            return;
+        }
+        const phoneDigits = form.phone.replace(/\D/g, '');
+        if (phoneDigits.length !== 10) {
+            setFormError('Phone must be exactly 10 digits.');
             return;
         }
 
@@ -1614,7 +1657,7 @@ export default function LeadsScreen() {
             <Portal>
                 <Modal
                     visible={modalVisible}
-                    onDismiss={() => setModalVisible(false)}
+                    onDismiss={() => { setModalVisible(false); setPhoneLookupResult(null); }}
                     contentContainerStyle={styles.modal}
                 >
                     <ScrollView showsVerticalScrollIndicator={false}>
@@ -1622,10 +1665,67 @@ export default function LeadsScreen() {
                             {editingLead ? 'Edit Lead' : 'Add New Lead'}
                         </Text>
 
-                        <View style={styles.formRow}>
-                            <TextInput label="Full Name *" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} mode="outlined" style={styles.formInput} />
-                            <TextInput label="Phone *" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} mode="outlined" keyboardType="phone-pad" style={styles.formInput} />
-                        </View>
+                        {/* ── Phone field: 10-digit enforcement + lookup (add mode only) ── */}
+                        {!editingLead ? (
+                            <View style={{ marginBottom: 12 }}>
+                                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                                    <View style={{ flex: 1 }}>
+                                        <TextInput
+                                            label="Phone * (10 digits)"
+                                            value={form.phone}
+                                            onChangeText={handleAddPhoneChange}
+                                            mode="outlined"
+                                            keyboardType="phone-pad"
+                                            maxLength={10}
+                                            outlineColor={form.phone.length === 10 ? '#10B981' : '#79747E'}
+                                            activeOutlineColor={form.phone.length === 10 ? '#10B981' : '#6366F1'}
+                                        />
+                                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2 }}>
+                                            <Text style={{ fontSize: 10, fontWeight: '600', color: form.phone.length === 10 ? '#10B981' : form.phone.length > 0 ? '#6366F1' : '#9CA3AF' }}>
+                                                {form.phone.length}/10 digits
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <TextInput label="Full Name" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} mode="outlined" style={styles.formInput} />
+                                </View>
+
+                                {/* Existing customer banner */}
+                                {phoneLookupResult?.exists && (
+                                    <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: '#86EFAC', marginTop: 8, gap: 4 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#15803D' }}>📋 Existing customer found</Text>
+                                        <Text style={{ fontSize: 13, color: '#166534', fontWeight: '600' }}>{phoneLookupResult.customer?.name}</Text>
+                                        {(phoneLookupResult.latestLead?.assignedToName || phoneLookupResult.customer?.assignedToName) && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                <Text style={{ fontSize: 12, color: '#166534' }}>📞 Caller:</Text>
+                                                <View style={{ backgroundColor: '#BBF7D0', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#15803D' }}>
+                                                        {phoneLookupResult.latestLead?.assignedToName || phoneLookupResult.customer?.assignedToName}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        )}
+                                        {phoneLookupResult.latestLead?.status && (
+                                            <Text style={{ fontSize: 11, color: '#6B7280' }}>
+                                                Latest status: <Text style={{ fontWeight: '700' }}>{phoneLookupResult.latestLead.status}</Text>
+                                            </Text>
+                                        )}
+                                        <Text style={{ fontSize: 11, color: '#15803D', fontStyle: 'italic' }}>↓ Fields pre-filled. You can edit below.</Text>
+                                    </View>
+                                )}
+
+                                {/* New customer indicator */}
+                                {phoneLookupResult !== null && !phoneLookupResult.exists && (
+                                    <View style={{ backgroundColor: '#EFF6FF', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#BFDBFE', marginTop: 8 }}>
+                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#1D4ED8' }}>✅ New customer — no prior record found</Text>
+                                    </View>
+                                )}
+                            </View>
+                        ) : (
+                            <View style={styles.formRow}>
+                                <TextInput label="Full Name *" value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} mode="outlined" style={styles.formInput} />
+                                <TextInput label="Phone *" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} mode="outlined" keyboardType="phone-pad" style={styles.formInput} />
+                            </View>
+                        )}
 
                         <View style={styles.formRow}>
                             <TextInput label="Address" value={form.address} onChangeText={v => setForm(f => ({ ...f, address: v }))} mode="outlined" style={[styles.formInput, { flex: 2 }]} />
