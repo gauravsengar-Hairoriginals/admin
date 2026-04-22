@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
     View,
     StyleSheet,
@@ -854,6 +854,123 @@ function HistoryAccordionView({ historyData }: { historyData: { currentLead: any
     );
 }
 
+// ── BurgerMenu: Portal-based dropdown — renders above all page content ─────────
+function BurgerMenu({
+    open, onToggle, onClose,
+    onExport, onImport,
+    importingCsv, exportLabel,
+}: {
+    open: boolean;
+    onToggle: () => void;
+    onClose: () => void;
+    onExport: () => void;
+    onImport: () => void;
+    importingCsv: boolean;
+    exportLabel: string;
+}) {
+    const btnRef = useRef<any>(null);
+    const [dropPos, setDropPos] = useState<{ top: number; right: number } | null>(null);
+
+    const handleToggle = () => {
+        if (!open && btnRef.current) {
+            // Measure button position relative to window
+            btnRef.current.measure((fx: number, fy: number, width: number, height: number, px: number, py: number) => {
+                // px/py = screen coords of the button top-left
+                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+                setDropPos({ top: py + height + 6, right: windowWidth - px - width });
+            });
+        }
+        onToggle();
+    };
+
+    return (
+        <>
+            {/* Button */}
+            <Pressable
+                ref={btnRef}
+                onPress={handleToggle}
+                style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    backgroundColor: open ? '#4F46E5' : '#F3F4F6',
+                    borderWidth: 1.5, borderColor: open ? '#4F46E5' : '#E5E7EB',
+                    alignItems: 'center', justifyContent: 'center',
+                }}
+            >
+                <Text style={{ fontSize: 20, color: open ? '#fff' : '#374151', lineHeight: 24, fontWeight: '700' }}>⋮</Text>
+            </Pressable>
+
+            {/* Dropdown rendered in Portal — sits above everything */}
+            <Portal>
+                {open && dropPos && (
+                    <>
+                        {/* Click-away backdrop */}
+                        <Pressable
+                            onPress={onClose}
+                            style={{
+                                position: 'fixed' as any, top: 0, left: 0, right: 0, bottom: 0,
+                                zIndex: 9998,
+                            }}
+                        />
+
+                        {/* Dropdown card */}
+                        <View
+                            style={{
+                                position: 'fixed' as any,
+                                top: dropPos.top,
+                                right: dropPos.right,
+                                zIndex: 9999,
+                                backgroundColor: '#fff',
+                                borderRadius: 14,
+                                borderWidth: 1, borderColor: '#E5E7EB',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 8 },
+                                shadowOpacity: 0.18, shadowRadius: 20,
+                                elevation: 24,
+                                minWidth: 220,
+                                overflow: 'hidden',
+                            }}
+                        >
+                            {/* Export CSV */}
+                            <Pressable
+                                onPress={onExport}
+                                style={({ pressed }) => [menuItemStyle, pressed && { backgroundColor: '#EEF2FF' }]}
+                            >
+                                <Text style={{ fontSize: 18, marginRight: 12, lineHeight: 22 }}>⬇️</Text>
+                                <View>
+                                    <Text style={menuLabelStyle}>Export CSV</Text>
+                                    <Text style={menuSubStyle}>{exportLabel}</Text>
+                                </View>
+                            </Pressable>
+
+                            <View style={menuDivider} />
+
+                            {/* Import CSV */}
+                            <Pressable
+                                onPress={onImport}
+                                style={({ pressed }) => [
+                                    menuItemStyle,
+                                    pressed && { backgroundColor: '#F0FDF4' },
+                                    importingCsv && { opacity: 0.5 },
+                                ]}
+                            >
+                                <Text style={{ fontSize: 18, marginRight: 12, lineHeight: 22 }}>
+                                    {importingCsv ? '⏳' : '⬆️'}
+                                </Text>
+                                <View>
+                                    <Text style={[menuLabelStyle, { color: '#065F46' }]}>
+                                        {importingCsv ? 'Importing…' : 'Import CSV'}
+                                    </Text>
+                                    <Text style={menuSubStyle}>Upload a leads CSV file</Text>
+                                </View>
+                            </Pressable>
+                        </View>
+                    </>
+                )}
+            </Portal>
+        </>
+    );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function LeadManagementScreen() {
     const [leads, setLeads] = useState<any[]>([]);
@@ -877,8 +994,24 @@ export default function LeadManagementScreen() {
     const [unassignedFilter, setUnassignedFilter] = useState(false);
     const [agingSort, setAgingSort] = useState<'none' | 'asc' | 'desc'>('none');
     const [expandedRevisitGroups, setExpandedRevisitGroups] = useState<Set<string>>(new Set());
-    const [exportFrom, setExportFrom] = useState('');
-    const [exportTo, setExportTo] = useState('');
+
+    // ── Date range (default: last 15 days) ───────────────────────────────
+    const todayStr = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+    const fifteenDaysAgoStr = () => {
+        const d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+    const [fromDate, setFromDate] = useState(fifteenDaysAgoStr());
+    const [toDate,   setToDate]   = useState(todayStr());
+    // Keep export date range separate (defaults to view range)
+    const exportFrom = fromDate;
+    const exportTo   = toDate;
+
+    // ── Burger menu ──────────────────────────────────────────────────────
+    const [burgerOpen, setBurgerOpen] = useState(false);
 
     const [editTarget, setEditTarget] = useState<any>(null);
     const [editForm, setEditForm] = useState<any>({});
@@ -948,6 +1081,8 @@ export default function LeadManagementScreen() {
                     page: p,
                     limit: LIMIT,
                     tab: filter,
+                    fromDate: fromDate || undefined,
+                    toDate:   toDate   || undefined,
                     name: colFilters.name || undefined,
                     phone: colFilters.phone || undefined,
                     city: colFilters.city || undefined,
@@ -971,7 +1106,7 @@ export default function LeadManagementScreen() {
             setTabCounts(countsRes.data ?? {});
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, [search, filter, colFilters, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
+    }, [search, filter, fromDate, toDate, colFilters, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
 
     // Apply filters instantly with a small debounce
     useEffect(() => {
@@ -979,7 +1114,7 @@ export default function LeadManagementScreen() {
             loadLeads(1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [colFilters, filter, search, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
+    }, [colFilters, filter, search, fromDate, toDate, categoryFilter, priorityFilter, unassignedFilter, agingSort]);
 
     useEffect(() => {
         api.get('/products', { params: { limit: 200 } })
@@ -1243,7 +1378,11 @@ export default function LeadManagementScreen() {
                     <Searchbar
                         placeholder="Search name or phone…"
                         value={search}
-                        onChangeText={setSearch}
+                        onChangeText={v => {
+                            // Guard: ignore keystrokes that leak from modal inputs on web
+                            if (addLeadVisible || !!editTarget || !!historyLead || !!reassignLead) return;
+                            setSearch(v);
+                        }}
                         onSubmitEditing={() => loadLeads(1, search)}
                         style={styles.searchBar}
                         inputStyle={{ minHeight: 0 }}
@@ -1254,51 +1393,95 @@ export default function LeadManagementScreen() {
                 </View>
             </View>
 
-            {/* ── Action Row: Export + Bulk Assign ── */}
+            {/* ── Action Row: Date Range + Burger Menu ── */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 2, marginBottom: 8, flexWrap: 'wrap' }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280' }}>Export:</Text>
+
+                {/* Date range label */}
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151' }}>📅 Date Range:</Text>
+
+                {/* From date */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Text style={{ fontSize: 11, color: '#9CA3AF' }}>From</Text>
+                    {/* @ts-ignore */}
                     <input
                         type="date"
-                        value={exportFrom}
-                        onChange={(e: any) => setExportFrom(e.target.value)}
+                        value={fromDate}
+                        onChange={(e: any) => setFromDate(e.target.value)}
                         style={{
-                            border: '1px solid #E5E7EB', borderRadius: 6,
-                            paddingLeft: 10, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
-                            fontSize: 12, color: '#374151', backgroundColor: '#fff',
-                            width: 140, outline: 'none', cursor: 'pointer',
+                            border: '1.5px solid #C7D2FE', borderRadius: 8,
+                            paddingLeft: 10, paddingRight: 10, paddingTop: 6, paddingBottom: 6,
+                            fontSize: 13, color: '#1E40AF', backgroundColor: '#EEF2FF',
+                            width: 145, outline: 'none', cursor: 'pointer', fontWeight: '600',
                         }}
                     />
                 </View>
+
+                {/* To date */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Text style={{ fontSize: 11, color: '#9CA3AF' }}>To</Text>
+                    {/* @ts-ignore */}
                     <input
                         type="date"
-                        value={exportTo}
-                        onChange={(e: any) => setExportTo(e.target.value)}
+                        value={toDate}
+                        onChange={(e: any) => setToDate(e.target.value)}
                         style={{
-                            border: '1px solid #E5E7EB', borderRadius: 6,
-                            paddingLeft: 10, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
-                            fontSize: 12, color: '#374151', backgroundColor: '#fff',
-                            width: 140, outline: 'none', cursor: 'pointer',
+                            border: '1.5px solid #C7D2FE', borderRadius: 8,
+                            paddingLeft: 10, paddingRight: 10, paddingTop: 6, paddingBottom: 6,
+                            fontSize: 13, color: '#1E40AF', backgroundColor: '#EEF2FF',
+                            width: 145, outline: 'none', cursor: 'pointer', fontWeight: '600',
                         }}
                     />
                 </View>
-                <Button mode="contained" icon="download" onPress={downloadCSV} compact
-                    buttonColor="#4F46E5" textColor="#fff"
-                    style={{ borderRadius: 8 }}>
-                    Export CSV
-                </Button>
-                {(exportFrom || exportTo) && (
-                    <Button mode="text" compact onPress={() => { setExportFrom(''); setExportTo(''); }}
-                        textColor="#9CA3AF" style={{ marginLeft: -4 }}>
-                        Clear dates
-                    </Button>
-                )}
-                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
 
-                {/* ── Import CSV ── */}
+                {/* Quick range chips */}
+                {[
+                    { label: '7d',  days: 7  },
+                    { label: '15d', days: 15 },
+                    { label: '30d', days: 30 },
+                    { label: '90d', days: 90 },
+                ].map(({ label, days }) => {
+                    const from = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000);
+                    const fStr = `${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+                    const tStr = todayStr();
+                    const active = fromDate === fStr && toDate === tStr;
+                    return (
+                        <Pressable
+                            key={label}
+                            onPress={() => { setFromDate(fStr); setToDate(tStr); }}
+                            style={{
+                                paddingHorizontal: 10, paddingVertical: 5,
+                                borderRadius: 20, borderWidth: 1.5,
+                                borderColor: active ? '#4F46E5' : '#E5E7EB',
+                                backgroundColor: active ? '#EEF2FF' : '#F9FAFB',
+                            }}
+                        >
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#4F46E5' : '#6B7280' }}>
+                                {label}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+
+                {/* Spacer */}
+                <View style={{ flex: 1 }} />
+
+                {/* ── Add New Lead — prominent top-level button ── */}
+                <Pressable
+                    onPress={() => setAddLeadVisible(true)}
+                    style={({ pressed }) => ({
+                        flexDirection: 'row', alignItems: 'center', gap: 7,
+                        paddingHorizontal: 16, paddingVertical: 9,
+                        borderRadius: 10, backgroundColor: pressed ? '#4338CA' : '#4F46E5',
+                        shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 3 },
+                        shadowOpacity: 0.35, shadowRadius: 8, elevation: 4,
+                    })}
+                >
+                    <Text style={{ fontSize: 15, lineHeight: 18, color: '#fff' }}>+</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff', letterSpacing: 0.2 }}>Add Lead</Text>
+                </Pressable>
+
+                {/* ── Burger menu (Export / Import only) ── */}
+                {/* Hidden file input (triggers uploadCSV) */}
                 {/* @ts-ignore */}
                 <input
                     id="lead-csv-import-input"
@@ -1307,33 +1490,16 @@ export default function LeadManagementScreen() {
                     style={{ display: 'none' }}
                     onChange={uploadCSV}
                 />
-                <Button
-                    mode="outlined"
-                    icon={importingCsv ? 'loading' : 'upload'}
-                    loading={importingCsv}
-                    disabled={importingCsv}
-                    compact
-                    style={{ borderRadius: 8, borderColor: '#10B981', borderWidth: 1.5 }}
-                    textColor="#065F46"
-                    onPress={() => {
-                        if (!importingCsv) (document.getElementById('lead-csv-import-input') as any)?.click();
-                    }}
-                >
-                    Import CSV
-                </Button>
 
-                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
-                <Button
-                    mode="contained"
-                    icon="account-plus"
-                    onPress={() => setAddLeadVisible(true)}
-                    compact
-                    style={{ borderRadius: 8 }}
-                    buttonColor="#4F46E5"
-                    textColor="#fff"
-                >
-                    Add New Lead
-                </Button>
+                <BurgerMenu
+                    open={burgerOpen}
+                    onToggle={() => setBurgerOpen(o => !o)}
+                    onClose={() => setBurgerOpen(false)}
+                    onExport={() => { downloadCSV(); setBurgerOpen(false); }}
+                    onImport={() => { if (!importingCsv) (document.getElementById('lead-csv-import-input') as any)?.click(); setBurgerOpen(false); }}
+                    importingCsv={importingCsv}
+                    exportLabel={fromDate && toDate ? `${fromDate} → ${toDate}` : 'All leads'}
+                />
             </View>
 
             {/* ── Category filter chips ── */}
@@ -2879,3 +3045,18 @@ const styles = StyleSheet.create({
         maxWidth: 860, alignSelf: 'center', width: '100%', maxHeight: '90%',
     },
 });
+
+// ── Burger menu item styles (used inline) ─────────────────────────────────────
+const menuItemStyle: any = {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 13,
+};
+const menuLabelStyle: any = {
+    fontSize: 14, fontWeight: '700', color: '#111827',
+};
+const menuSubStyle: any = {
+    fontSize: 11, color: '#9CA3AF', marginTop: 1,
+};
+const menuDivider: any = {
+    height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 12,
+};

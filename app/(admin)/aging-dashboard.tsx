@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, ScrollView, StyleSheet, RefreshControl,
+    View, ScrollView, StyleSheet, RefreshControl, Pressable, Modal, FlatList,
 } from 'react-native';
 import {
     Text, Card, ActivityIndicator, Button, SegmentedButtons,
@@ -37,12 +37,25 @@ interface DailyAgingData {
     days: string[];
     today: string;
     categories: CategoryReport[];
+    overdueCounts: Record<string, number>;
 }
 
 interface DailyCallerData {
     days: string[];
     today: string;
     callers: CallerReport[];
+    overdueCounts: Record<string, number>;
+}
+
+// Drill-down context: what cell was tapped
+interface DrillContext {
+    title: string;
+    /** null date = overdue (no date filter, use tab=reminder) */
+    date: string | null;
+    status: string | null;
+    leadCategory?: string;
+    assignedToId?: string;
+    callerName?: string;
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -88,8 +101,154 @@ const formatDay = (dateStr: string): { weekday: string; date: string } => {
     return { weekday: DAY_NAMES[dt.getDay()], date: `${d} ${MONTH_NAMES[m - 1]}` };
 };
 
+const fmtStatus = (status: string): string => {
+    const map: Record<string, string> = {
+        'new': 'Fresh', 'contacted': 'Contacted', 'dropped': 'Dropped',
+        'converted:Marked to HT': 'Booked HT',
+        'converted:Marked to EC': 'Booked EC',
+        'converted:Marked to VC': 'Booked VC',
+    };
+    return map[status] ?? status;
+};
+
 const DAY_COL_W = 70;
 const LABEL_W   = 152;
+
+// ── Drill-Down Modal ──────────────────────────────────────────────────────────
+
+function DrillDownModal({
+    ctx, onClose,
+}: { ctx: DrillContext | null; onClose: () => void }) {
+    const [leads, setLeads]     = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [total, setTotal]     = useState(0);
+    const [page, setPage]       = useState(1);
+    const PAGE = 20;
+
+    const fetchLeads = useCallback(async (p = 1) => {
+        if (!ctx) return;
+        setLoading(true);
+        try {
+            const params: Record<string, any> = { page: p, limit: PAGE };
+            if (ctx.leadCategory) params.leadCategory = ctx.leadCategory;
+            if (ctx.assignedToId) params.assignedToId = ctx.assignedToId;
+
+            if (ctx.date === null) {
+                // Overdue cell — use reminder tab
+                params.tab = 'reminder';
+            } else {
+                if (ctx.status) params.status = ctx.status;
+                params.fromDate = ctx.date;
+                params.toDate   = ctx.date;
+            }
+
+            const res = await api.get('/leads', { params });
+            if (p === 1) {
+                setLeads(res.data.leads ?? []);
+            } else {
+                setLeads(prev => [...prev, ...(res.data.leads ?? [])]);
+            }
+            setTotal(res.data.total ?? 0);
+            setPage(p);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    }, [ctx]);
+
+    useEffect(() => {
+        if (ctx) {
+            setLeads([]);
+            setTotal(0);
+            setPage(1);
+            fetchLeads(1);
+        }
+    }, [ctx]);
+
+    const renderLead = ({ item }: { item: any }) => {
+        const sStyle = STATUS_STYLE[item.status] ?? { color: '#374151', bg: '#F3F4F6' };
+        const createdAt = new Date(item.createdAt).toLocaleDateString('en-IN', {
+            day: '2-digit', month: 'short', year: 'numeric',
+        });
+        return (
+            <View style={dd.leadRow}>
+                <View style={{ flex: 1 }}>
+                    <Text style={dd.leadName} numberOfLines={1}>
+                        {item.customer?.name ?? '—'}
+                    </Text>
+                    <Text style={dd.leadPhone}>{item.customer?.phone ?? '—'}</Text>
+                    {item.customer?.city ? (
+                        <Text style={dd.leadCity}>📍 {item.customer.city}</Text>
+                    ) : null}
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <View style={[dd.statusBadge, { backgroundColor: sStyle.bg }]}>
+                        <Text style={[dd.statusText, { color: sStyle.color }]}>
+                            {fmtStatus(item.status)}
+                        </Text>
+                    </View>
+                    <Text style={dd.callerText}>
+                        {item.assignedToName ? `👤 ${item.assignedToName}` : '⚠️ Unassigned'}
+                    </Text>
+                    <Text style={dd.dateText}>{createdAt}</Text>
+                </View>
+            </View>
+        );
+    };
+
+    return (
+        <Modal visible={!!ctx} onRequestClose={onClose} animationType="slide" transparent>
+            <View style={dd.overlay}>
+                <View style={dd.sheet}>
+                    {/* Header */}
+                    <View style={dd.header}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={dd.headerTitle} numberOfLines={2}>{ctx?.title}</Text>
+                            {!loading && (
+                                <Text style={dd.headerSub}>{total} lead{total !== 1 ? 's' : ''}</Text>
+                            )}
+                        </View>
+                        <Pressable onPress={onClose} style={dd.closeBtn}>
+                            <Text style={dd.closeText}>✕</Text>
+                        </Pressable>
+                    </View>
+
+                    {loading && leads.length === 0 ? (
+                        <View style={dd.loadingView}>
+                            <ActivityIndicator size="large" color={Colors.primary} />
+                            <Text style={{ color: Colors.textSecondary, marginTop: 12 }}>Loading leads…</Text>
+                        </View>
+                    ) : leads.length === 0 ? (
+                        <View style={dd.loadingView}>
+                            <Text style={{ fontSize: 32 }}>📭</Text>
+                            <Text style={{ color: Colors.textSecondary, marginTop: 8 }}>No leads found</Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={leads}
+                            keyExtractor={item => item.id}
+                            renderItem={renderLead}
+                            contentContainerStyle={{ paddingBottom: 24 }}
+                            ItemSeparatorComponent={() => <View style={dd.separator} />}
+                            onEndReached={() => {
+                                if (!loading && leads.length < total) fetchLeads(page + 1);
+                            }}
+                            onEndReachedThreshold={0.3}
+                            ListFooterComponent={
+                                loading && leads.length > 0
+                                    ? <ActivityIndicator style={{ marginVertical: 16 }} color={Colors.primary} />
+                                    : leads.length >= total && total > 0
+                                        ? <Text style={dd.allLoaded}>All {total} leads loaded</Text>
+                                        : null
+                            }
+                        />
+                    )}
+                </View>
+            </View>
+        </Modal>
+    );
+}
 
 // ── Shared Grid Card ──────────────────────────────────────────────────────────
 
@@ -97,11 +256,15 @@ const DayGrid = ({
     title, subtitle, grandTotal,
     color, bg, border, emoji,
     statusRows, dayTotals, days, today,
+    overdueCount,
+    onCellPress,
 }: {
     title: string; subtitle: string; grandTotal: number;
     color: string; bg: string; border: string; emoji?: string;
     statusRows: StatusRow[]; dayTotals: number[];
     days: string[]; today: string;
+    overdueCount?: number;
+    onCellPress: (ctx: DrillContext) => void;
 }) => (
     <Card mode="elevated" elevation={2} style={[styles.catCard, { borderLeftColor: color, borderLeftWidth: 5 }]}>
         {/* Card header */}
@@ -145,6 +308,31 @@ const DayGrid = ({
                     </View>
                 </View>
 
+                {/* ── Overdue row (amber, snapshot of now) */}
+                {overdueCount !== undefined && overdueCount > 0 && (
+                    <Pressable
+                        onPress={() => onCellPress({
+                            title: `⏰ Overdue — ${title}`,
+                            date: null,
+                            status: null,
+                        })}
+                        style={[styles.gridRow, styles.overdueRow]}
+                    >
+                        <View style={[styles.labelCell, { borderRightColor: '#D97706' }]}>
+                            <View style={styles.overduePill}>
+                                <Text style={styles.overdueLabel}>⏰ Overdue</Text>
+                            </View>
+                        </View>
+                        {/* Span all day columns with a single count */}
+                        <View style={[{ width: DAY_COL_W * days.length }, styles.overdueSpanCell]}>
+                            <Text style={styles.overdueHint}>past next-action-date</Text>
+                        </View>
+                        <View style={[styles.dataCell, styles.overdueCountCell]}>
+                            <Text style={styles.overdueCount}>{overdueCount}</Text>
+                        </View>
+                    </Pressable>
+                )}
+
                 {/* ── New Leads row (daily intake = sum of all statuses) */}
                 <View style={[styles.gridRow, styles.newLeadsRow]}>
                     <View style={[styles.labelCell, { borderRightColor: '#6366F1' }]}>
@@ -184,20 +372,45 @@ const DayGrid = ({
                             </View>
                             {row.dayCounts.map((count, di) => {
                                 const isToday = days[di] === today;
+                                const tappable = count > 0;
                                 return (
-                                    <View key={di} style={[styles.dataCell, isToday && { backgroundColor: `${bg}CC` }]}>
+                                    <Pressable
+                                        key={di}
+                                        disabled={!tappable}
+                                        onPress={() => onCellPress({
+                                            title: `${row.label} · ${formatDay(days[di]).date}${title ? ` · ${title}` : ''}`,
+                                            date: days[di],
+                                            status: row.status,
+                                        })}
+                                        style={({ pressed }) => [
+                                            styles.dataCell,
+                                            isToday && { backgroundColor: `${bg}CC` },
+                                            tappable && pressed && { backgroundColor: `${bg}EE`, transform: [{ scale: 0.95 }] },
+                                        ]}
+                                    >
                                         {count > 0
-                                            ? <Text style={[styles.dataCellCount, { color: sStyle.color }]}>{count}</Text>
+                                            ? <Text style={[styles.dataCellCount, { color: sStyle.color }, tappable && styles.tappableCount]}>{count}</Text>
                                             : <Text style={styles.dataCellZero}>—</Text>
                                         }
-                                    </View>
+                                    </Pressable>
                                 );
                             })}
-                            <View style={[styles.dataCell, styles.rowTotalCell]}>
+                            <Pressable
+                                disabled={row.rowTotal === 0}
+                                onPress={() => onCellPress({
+                                    title: `${row.label} · All Days · ${title}`,
+                                    date: null,
+                                    status: row.status,
+                                })}
+                                style={({ pressed }) => [
+                                    styles.dataCell, styles.rowTotalCell,
+                                    row.rowTotal > 0 && pressed && { opacity: 0.7 },
+                                ]}
+                            >
                                 <Text style={[styles.dataCellCount, { color, fontWeight: '800' }]}>
                                     {row.rowTotal > 0 ? row.rowTotal : '—'}
                                 </Text>
-                            </View>
+                            </Pressable>
                         </View>
                     );
                 })}
@@ -226,7 +439,13 @@ const DayGrid = ({
 
 // ── Category Summary Strip ────────────────────────────────────────────────────
 
-const CategorySummaryStrip = ({ categories }: { categories: CategoryReport[] }) => (
+const CategorySummaryStrip = ({
+    categories, overdueCounts, onOverdueTap,
+}: {
+    categories: CategoryReport[];
+    overdueCounts: Record<string, number>;
+    onOverdueTap: (cat: string) => void;
+}) => (
     <View style={styles.summaryStrip}>
         {categories.map(cat => {
             const meta    = CATEGORY_META[cat.category] ?? CATEGORY_META.OTHER;
@@ -234,6 +453,7 @@ const CategorySummaryStrip = ({ categories }: { categories: CategoryReport[] }) 
             const contact = cat.statusRows.find(r => r.status === 'contacted')?.rowTotal ?? 0;
             const booked  = cat.statusRows.find(r => r.status.startsWith('converted:'))?.rowTotal ?? 0;
             const dropped = cat.statusRows.find(r => r.status === 'dropped')?.rowTotal ?? 0;
+            const overdue = overdueCounts[cat.category] ?? 0;
             return (
                 <View key={cat.category} style={[styles.summaryCard, { borderColor: meta.border, backgroundColor: meta.bg }]}>
                     <Text style={[styles.summaryTitle, { color: meta.color }]}>{meta.emoji} {meta.label}</Text>
@@ -250,6 +470,11 @@ const CategorySummaryStrip = ({ categories }: { categories: CategoryReport[] }) 
                             </View>
                         ))}
                     </View>
+                    {overdue > 0 && (
+                        <Pressable onPress={() => onOverdueTap(cat.category)} style={styles.overdueChip}>
+                            <Text style={styles.overdueChipText}>⏰ {overdue} overdue</Text>
+                        </Pressable>
+                    )}
                 </View>
             );
         })}
@@ -258,7 +483,13 @@ const CategorySummaryStrip = ({ categories }: { categories: CategoryReport[] }) 
 
 // ── Caller Summary Strip ──────────────────────────────────────────────────────
 
-const CallerSummaryStrip = ({ callers }: { callers: CallerReport[] }) => (
+const CallerSummaryStrip = ({
+    callers, overdueCounts, onOverdueTap,
+}: {
+    callers: CallerReport[];
+    overdueCounts: Record<string, number>;
+    onOverdueTap: (callerId: string, callerName: string) => void;
+}) => (
     <View style={styles.summaryStrip}>
         {callers.map((caller, idx) => {
             const isUnassigned = caller.callerId === '__unassigned__';
@@ -269,6 +500,7 @@ const CallerSummaryStrip = ({ callers }: { callers: CallerReport[] }) => (
             const contact = caller.statusRows.find(r => r.status === 'contacted')?.rowTotal ?? 0;
             const booked  = caller.statusRows.filter(r => r.status.startsWith('converted:')).reduce((s, r) => s + r.rowTotal, 0);
             const dropped = caller.statusRows.find(r => r.status === 'dropped')?.rowTotal ?? 0;
+            const overdue = overdueCounts[caller.callerId] ?? 0;
             return (
                 <View key={caller.callerId} style={[styles.summaryCard, { borderColor: palette.border, backgroundColor: palette.bg }]}>
                     <Text style={[styles.summaryTitle, { color: palette.color }]} numberOfLines={1}>
@@ -287,6 +519,14 @@ const CallerSummaryStrip = ({ callers }: { callers: CallerReport[] }) => (
                             </View>
                         ))}
                     </View>
+                    {overdue > 0 && (
+                        <Pressable
+                            onPress={() => onOverdueTap(caller.callerId, caller.callerName)}
+                            style={styles.overdueChip}
+                        >
+                            <Text style={styles.overdueChipText}>⏰ {overdue} overdue</Text>
+                        </Pressable>
+                    )}
                 </View>
             );
         })}
@@ -303,6 +543,8 @@ export default function AgingDashboardScreen() {
     const [loading,    setLoading]    = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+    const [drillCtx, setDrillCtx] = useState<DrillContext | null>(null);
 
     const fetchData = useCallback(async () => {
         try {
@@ -332,6 +574,34 @@ export default function AgingDashboardScreen() {
     const subtitle = tab === 'category'
         ? `${catData?.categories.length ?? 0} categories`
         : `${callerData?.callers.length ?? 0} callers`;
+
+    // ── Cell press handlers ──────────────────────────────────────────────
+    const handleCategoryCell = useCallback((cat: CategoryReport, ctx: DrillContext) => {
+        setDrillCtx({ ...ctx, leadCategory: cat.category });
+    }, []);
+
+    const handleCallerCell = useCallback((caller: CallerReport, ctx: DrillContext) => {
+        setDrillCtx({ ...ctx, assignedToId: caller.callerId === '__unassigned__' ? undefined : caller.callerId });
+    }, []);
+
+    const handleCategoryOverdue = useCallback((cat: string) => {
+        const meta = CATEGORY_META[cat] ?? CATEGORY_META.OTHER;
+        setDrillCtx({
+            title: `⏰ Overdue — ${meta.label}`,
+            date: null,
+            status: null,
+            leadCategory: cat,
+        });
+    }, []);
+
+    const handleCallerOverdue = useCallback((callerId: string, callerName: string) => {
+        setDrillCtx({
+            title: `⏰ Overdue — ${callerName}`,
+            date: null,
+            status: null,
+            assignedToId: callerId === '__unassigned__' ? undefined : callerId,
+        });
+    }, []);
 
     return (
         <AdminPageLayout>
@@ -366,15 +636,19 @@ export default function AgingDashboardScreen() {
             <View style={styles.legend}>
                 <Text style={styles.legendTitle}>Status:</Text>
                 {[
-                    { label: '🆕 Fresh',       color: '#0369A1' },
-                    { label: '📞 Contacted',   color: '#7C3AED' },
-                    { label: '✅ Booked',       color: '#065F46' },
-                    { label: '🚫 Dropped',     color: '#991B1B' },
+                    { label: '🆕 Fresh',     color: '#0369A1' },
+                    { label: '📞 Contacted', color: '#7C3AED' },
+                    { label: '✅ Booked',    color: '#065F46' },
+                    { label: '🚫 Dropped',   color: '#991B1B' },
+                    { label: '⏰ Overdue',   color: '#B45309' },
                 ].map(l => (
                     <View key={l.label} style={[styles.legendItem, { borderColor: l.color + '40' }]}>
                         <Text style={[styles.legendText, { color: l.color }]}>{l.label}</Text>
                     </View>
                 ))}
+                <Text style={[styles.legendTitle, { color: '#6366F1', marginLeft: 8 }]}>
+                    💡 Tap any count to see leads
+                </Text>
             </View>
 
             {loading ? (
@@ -394,7 +668,11 @@ export default function AgingDashboardScreen() {
                 >
                     {tab === 'category' && catData ? (
                         <>
-                            <CategorySummaryStrip categories={catData.categories} />
+                            <CategorySummaryStrip
+                                categories={catData.categories}
+                                overdueCounts={catData.overdueCounts ?? {}}
+                                onOverdueTap={handleCategoryOverdue}
+                            />
                             {catData.categories.length === 0 ? (
                                 <View style={styles.empty}>
                                     <Text style={styles.emptyText}>📭 No leads in the last 7 days</Text>
@@ -413,13 +691,19 @@ export default function AgingDashboardScreen() {
                                         dayTotals={cat.dayTotals}
                                         days={catData.days}
                                         today={catData.today}
+                                        overdueCount={catData.overdueCounts?.[cat.category] ?? 0}
+                                        onCellPress={ctx => handleCategoryCell(cat, ctx)}
                                     />
                                 );
                             })}
                         </>
                     ) : callerData ? (
                         <>
-                            <CallerSummaryStrip callers={callerData.callers} />
+                            <CallerSummaryStrip
+                                callers={callerData.callers}
+                                overdueCounts={callerData.overdueCounts ?? {}}
+                                onOverdueTap={handleCallerOverdue}
+                            />
                             {callerData.callers.length === 0 ? (
                                 <View style={styles.empty}>
                                     <Text style={styles.emptyText}>📭 No leads assigned in the last 7 days</Text>
@@ -443,6 +727,8 @@ export default function AgingDashboardScreen() {
                                         dayTotals={caller.dayTotals}
                                         days={callerData.days}
                                         today={callerData.today}
+                                        overdueCount={callerData.overdueCounts?.[caller.callerId] ?? 0}
+                                        onCellPress={ctx => handleCallerCell(caller, ctx)}
                                     />
                                 );
                             })}
@@ -450,6 +736,9 @@ export default function AgingDashboardScreen() {
                     ) : null}
                 </ScrollView>
             )}
+
+            {/* Drill-down modal */}
+            <DrillDownModal ctx={drillCtx} onClose={() => setDrillCtx(null)} />
         </AdminPageLayout>
     );
 }
@@ -486,6 +775,14 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: '#E5E7EB',
     },
     summaryPillText: { fontSize: 11, fontWeight: '700' },
+
+    overdueChip: {
+        marginTop: 8, alignSelf: 'flex-start',
+        backgroundColor: '#FEF3C7', borderRadius: 20,
+        paddingHorizontal: 10, paddingVertical: 4,
+        borderWidth: 1, borderColor: '#F59E0B',
+    },
+    overdueChipText: { fontSize: 12, fontWeight: '800', color: '#B45309' },
 
     catCard: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#FFFFFF' },
     catHeader: {
@@ -539,6 +836,7 @@ const styles = StyleSheet.create({
         borderRightWidth: 1, borderRightColor: '#F3F4F6',
     },
     dataCellCount: { fontSize: 16, fontWeight: '800' },
+    tappableCount: { textDecorationLine: 'underline' },
     dataCellZero:  { fontSize: 14, color: '#D1D5DB', fontWeight: '500' },
     rowTotalCell:  { backgroundColor: '#F5F3FF' },
 
@@ -571,4 +869,68 @@ const styles = StyleSheet.create({
         height: 3, backgroundColor: '#C7D2FE',
         marginBottom: 2,
     },
+
+    // ── Overdue row
+    overdueRow: {
+        backgroundColor: '#FFFBEB',
+        borderTopWidth: 1, borderTopColor: '#FCD34D',
+    },
+    overduePill: {
+        backgroundColor: '#F59E0B',
+        borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+        alignSelf: 'flex-start',
+    },
+    overdueLabel: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+    overdueSpanCell: {
+        justifyContent: 'center', alignItems: 'center',
+        borderRightWidth: 1, borderRightColor: '#FCD34D',
+        paddingVertical: 10,
+    },
+    overdueHint: { fontSize: 11, color: '#B45309', fontStyle: 'italic' },
+    overdueCountCell: { backgroundColor: '#F59E0B' },
+    overdueCount: { fontSize: 16, fontWeight: '900', color: '#FFFFFF' },
+});
+
+// ── Drill-down modal styles ───────────────────────────────────────────────────
+
+const dd = StyleSheet.create({
+    overlay: {
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+        justifyContent: 'flex-end',
+    },
+    sheet: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 20, borderTopRightRadius: 20,
+        maxHeight: '80%',
+        shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.15, shadowRadius: 16, elevation: 20,
+    },
+    header: {
+        flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+        paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14,
+        borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+    },
+    headerTitle: { fontSize: 16, fontWeight: '800', color: '#111827', flex: 1 },
+    headerSub:   { fontSize: 13, color: '#6B7280', marginTop: 2 },
+    closeBtn: {
+        width: 32, height: 32, borderRadius: 16,
+        backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    },
+    closeText: { fontSize: 14, fontWeight: '700', color: '#374151' },
+    loadingView: { alignItems: 'center', paddingVertical: 60 },
+    leadRow: {
+        flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+        paddingHorizontal: 20, paddingVertical: 14,
+    },
+    leadName:  { fontSize: 14, fontWeight: '700', color: '#111827' },
+    leadPhone: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+    leadCity:  { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
+    statusBadge: {
+        borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+    },
+    statusText:  { fontSize: 12, fontWeight: '700' },
+    callerText:  { fontSize: 12, color: '#6B7280' },
+    dateText:    { fontSize: 11, color: '#9CA3AF' },
+    separator:   { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 20 },
+    allLoaded:   { textAlign: 'center', color: '#9CA3AF', fontSize: 12, paddingVertical: 12 },
 });
